@@ -17,6 +17,16 @@ use File::Find;
 use Storable qw(store_fd fd_retrieve);
 use POSIX qw(floor);
 
+my $dir = $ENV{HOME}.'/.microjuke/';
+
+unless (-d $dir) {
+	die "Error making data dir folder '$dir` \n" unless mkdir($dir);
+}
+
+unless (-w $dir) {
+	die "Invalid permissions on data dir '$dir`;\n";
+}
+
 sub seconds2minutes {
 	my $secs = shift;
 	my $mins = floor($secs / 60);
@@ -24,20 +34,26 @@ sub seconds2minutes {
 	return "$mins:$secs";
 }
 
-my $action = shift;
+if (scalar @ARGV != 2) {
+	print "USAGE: $0 parse pathtofolder\n";
+	exit 1;
+}
 
-die "Tell me what to do!\n" unless $action;
+my ($action, $folder) = @ARGV;
+
+die "Folder '$folder` nonexistent\n" unless (-d $folder);
 
 my @songs;
 
 if ($action eq 'parse') {
 	my $num_parsed = 0;
-	find(\&parse, qw(/mnt/nfs/aero_more/Music/));
+	find(\&parse, ($folder));
 	sub parse {
 		my ($artist, $album, $title, $time, $tracknum);
 		return if (! -f $File::Find::name);
 		if ($_ =~ m/\.mp3$/) {
 			my $mp3 = new MP3::Info $File::Find::name;
+			return unless $mp3;
 			return unless defined $mp3->artist && defined $mp3->album && defined $mp3->title;
 			return unless $mp3->artist ne '' && $mp3->album ne '' && $mp3->title ne '';
 			($artist, $album, $title, $time, $tracknum) = (
@@ -87,7 +103,7 @@ if ($action eq 'parse') {
 		push @songs, [$artist, $album, $tracknum, $title, $File::Find::name, $time];
 		$num_parsed++;
 	}
-	open(H, '>songs.dat');
+	open(H, '>'.$dir.'songs.dat');
 	store_fd \@songs, \*H;
 	close H;
 	print "Parsed $num_parsed MP3's\n";

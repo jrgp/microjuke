@@ -14,6 +14,18 @@ use Data::Dumper;
 use GStreamer -init;
 use Storable qw(store_fd fd_retrieve);
 
+my $dir = $ENV{HOME}.'/.microjuke/';
+
+unless (-d $dir) {
+	die "Error making data dir folder '$dir` \n" unless mkdir($dir);
+}
+
+unless (-w $dir) {
+	die "Invalid permissions on data dir '$dir`;\n";
+}
+
+my @global_songs;
+
 my $w = ();
 
 my $files = {};
@@ -181,14 +193,40 @@ $w->{pl}->signal_connect('row-activated' => sub {
 #	return 0;
 #});
 
+# Player list
 $w->{plc} = Gtk2::ScrolledWindow->new (undef, undef);
 $w->{plc}->set_policy ('automatic', 'always');
 $w->{plc}->set_size_request (500,300);
 
 $w->{mv}->pack_start($w->{menu}->{widget}, 0, 0, 0);
+
+# Search
+$w->{search} = Gtk2::HBox->new;
+$w->{mv}->pack_start($w->{search}, 0, 0, 0);
+
+$w->{s_label} = Gtk2::Label->new('Filter: ');
+$w->{search}->pack_start($w->{s_label}, 0, 0, 0);
+
+$w->{s_entry} = Gtk2::Entry->new();
+$w->{search}->pack_start($w->{s_entry}, 0, 0, 0);
+
+$w->{s_entry}->signal_connect('key-release-event', sub {
+	my ($widget, $event) = @_;
+	search_callback($widget, $event);
+	return 0;
+});
+
+sub search_callback {
+	my ($widget, $event) = @_;
+	my $query = $widget->get_text();
+	$query  =~ s/^\s+|\s+$//g ;
+	filterSongs($query);
+}
+
 $w->{plc}->add($w->{pl});
 $w->{mv}->add($w->{plc});
 
+# Status bar
 $w->{sb} = Gtk2::Statusbar->new();
 $w->{sbID} = $w->{sb}->get_context_id('se');
 $w->{sb}->push($w->{sbID}, 'Nothing playing.');
@@ -196,8 +234,8 @@ $w->{mv}->pack_end($w->{sb}, 0, 0, 0);
 
 $w->{sbl} = Gtk2::Label->new('Nothing playing.');
 $w->{sbl}->set_justify('center');
-#$w->{sb}->pack_start($w->{sbl}, 0, 0, 0);
 
+# Finalize
 $w->{main}->show_all;
 
 sub toolong {
@@ -206,20 +244,21 @@ sub toolong {
 	return length($str) > 30 ? substr ($str, 0, 29).'..' : $str;
 }
 
-sub reloadSongList {
-	my $w = shift;
-	open(H, '<songs.dat');
-	my $songs = fd_retrieve(\*H);
-	close H;
+sub filterSongs {
+	my $query = shift;
+
+	my @fsongs = $query eq '' ? @global_songs  :
+		grep (
+			$_->[0] =~ /$query/i ||
+			$_->[1] =~ /$query/i ||
+			$_->[3] =~ /$query/i 
+		, @global_songs);
 
 	$files = {};
 	@{$w->{pl}->{data}} = ();
 	
-	my @songs = @{$songs};
-	#@songs = grep ($_->[0] =~ /live/i, @songs ) ;
-	#@songs = grep ($_->[1] =~ /copper/i, @songs ) ;
 	my $i = 0;
-	for (@songs) {
+	for (@fsongs) {
 		push @{$w->{pl}->{data}}, [
 			toolong($_->[2]),
 			toolong($_->[3]),
@@ -232,6 +271,17 @@ sub reloadSongList {
 	}
 }
 
+sub reloadSongList {
+	my $w = shift;
+	my $path = $dir.'songs.dat';
+	return unless -e $path && -r $path;
+	open(H, '<'.$path);
+	my $songs = fd_retrieve(\*H);
+	close H;
+	@global_songs = @{$songs};
+	
+	filterSongs('');
+}
 
 Glib::Idle->add(
 	sub{
@@ -240,5 +290,7 @@ Glib::Idle->add(
 	},
 	$w
 );
+
+$w->{main}->set_title('MicroJuke');
 
 Gtk2->main;

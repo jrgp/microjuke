@@ -76,6 +76,8 @@ sub getProgress {
 		$duration = MicroJuke::GUI::seconds2minutes(floor($duration / 1000000000));
 	}
 
+	return 0 if !$progress || !$duration;
+
 	$self->{gui}->{w}->{np_timer}->set_text("$progress of $duration");
 
 	return 1;
@@ -85,12 +87,11 @@ sub busCallBack {
 	my ($self, $bus, $message) = @_;
 
 	if ($message -> type & "error") {
-		warn $message -> error;
 		$self->{loop} -> quit();
 	}
 
 	elsif ($message -> type & "eos") {
-		$self->{loop} -> quit();
+		$self->{loop}->quit();
 		$self->playSong($self->{gstate}->{playing_what} + 1);
 	}
 
@@ -191,6 +192,7 @@ sub filterSongs {
 		$self->{w}->{s_status}->set_text('');
 	}
 	else {
+		$query = quotemeta($query);
 		@fsongs =
 		grep (
 			$_->[0] =~ /$query/i ||
@@ -230,7 +232,6 @@ sub init_gui {
 	my $self = shift;
 	$self->{w} = ();
 	$self->{w}->{main} = new Gtk2::Window 'toplevel';
-	$self->{w}->{main}->signal_connect(delete_event => sub{Gtk2->main_quit;});
 	$self->{w}->{mv} = Gtk2::VBox->new;
 	$self->{w}->{main}->add($self->{w}->{mv});
 
@@ -253,7 +254,9 @@ sub init_gui {
 					}
 				},
 				_Quit => {
-					callback => sub{Gtk2->main_quit;},
+					callback => sub{
+						$self->die;
+					},
 					callback_action => 0,
 				},
 			]
@@ -379,7 +382,19 @@ sub init_gui {
 		$self
 	);
 
+	# Prepare for dying like a twat
+	$self->{w}->{main}->signal_connect(delete_event => sub{
+		$self->die;
+	}, $self);
+
 	Gtk2->main;
+}
+
+sub die {
+	my $self = shift;
+	$self->{play}->{play}->set_state('null');
+	Glib::Source->remove ($self->{w}->{periodic_time_dec}) if $self->{w}->{periodic_time_dec};
+	Gtk2->main_quit;
 }
 
 1;

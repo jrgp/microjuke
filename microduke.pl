@@ -1,299 +1,173 @@
 #!/usr/bin/env perl
 
-BEGIN {$| = 1; }
+## Maintain settings and so on
+package MicroJuke::Conf;
 
-# Joe Gillotti - 1/26/2012
-
-use strict;
 use warnings;
-
-use Glib;
-use Gtk2 qw(-init);
-use Glib qw(TRUE FALSE);
-use Gtk2::SimpleMenu;
-use Gtk2::SimpleList;
-use Data::Dumper;
-use GStreamer -init;
-use Storable qw(store_fd fd_retrieve);
-use POSIX qw(floor mkfifo);
-use Fcntl;
-use Gtk2::Helper;
+use strict;
 
 my $dir = $ENV{HOME}.'/.microjuke/';
 
-unless (-d $dir) {
-	die "Error making data dir folder '$dir` \n" unless mkdir($dir);
+sub init {
+	unless (-d $dir) {
+		print "Error making data dir folder '$dir`: $! \n" unless mkdir($dir);
+	}
 }
 
-unless (-w $dir) {
-	die "Invalid permissions on data dir '$dir`;\n";
+sub getDir {
+	$dir;
 }
 
-my @global_songs;
+1;
 
-my $w = ();
+## Maintain play state
+package MicroJuke::Play;
 
-my $files = {};
+use warnings;
+use strict;
 
-my $gstate = {
-	playing => 0,
-	playing_what => -1
-};
+use GStreamer -init;
+use Glib qw(TRUE FALSE);
+use Storable qw(store_fd fd_retrieve);
+use POSIX qw(floor);
 
-my $loop = Glib::MainLoop -> new();
-my $play = GStreamer::ElementFactory -> make("playbin", "play");
+sub new {
+	my ($class) = @_;
+	my $self = {};
+	bless $self, $class;
+	$self->{all_songs} = ();
+	$self->{files} = {};
+	$self->{gstate} = {
+		playing => 0,
+		playing_what => -1
+	};
+	$self->{loop} = Glib::MainLoop -> new();
+	$self->{play} = GStreamer::ElementFactory -> make("playbin", "play");
 
-sub seconds2minutes {
-	my $secs = shift;
-	return sprintf('%d:%02d', floor($secs / 60), floor($secs % 60));
+	$self;
+}
+
+sub reloadSongList {
+	my $self = shift;
+	my $path = MicroJuke::Conf::getDir().'songs.dat';
+	return unless -e $path && -r $path;
+	open(H, '<'.$path);
+	my $songs = fd_retrieve(\*H);
+	close H;
+	$self->{all_songs} = $songs;
+	$self->{gui}->filterSongs('');
+
+	$self->{gui}->{w}->{sb}->pop($self->{gui}->{w}->{sbID});
+	$self->{gui}->{w}->{sb}->push($self->{gui}->{w}->{sbID}, scalar(@{$self->{all_songs}}).' songs');
 }
 
 sub getProgress {
+	my $self = shift;
 	my $gst = GStreamer::Query::Position->new ('time');
 	my ($progress, $duration, $pfield, $dfield);
-	if ($play->query($gst)) {
+	if ($self->{play}->query($gst)) {
 		($pfield, $progress) = $gst->position('time');
-		$progress = seconds2minutes(floor($progress / 1000000000));
+		$progress = MicroJuke::GUI::seconds2minutes(floor($progress / 1000000000));
 	}
 
 	my $dst = GStreamer::Query::Duration->new ('time');
-	if ($play->query($dst)) {
+	if ($self->{play}->query($dst)) {
 		($dfield, $duration) = $dst->duration('time');
-		$duration = seconds2minutes(floor($duration / 1000000000));
+		$duration = MicroJuke::GUI::seconds2minutes(floor($duration / 1000000000));
 	}
 
-	$w->{np_timer}->set_text("$progress of $duration");
+	$self->{gui}->{w}->{np_timer}->set_text("$progress of $duration");
 
 	return 1;
 }
 
-
-sub my_bus_callback {
-	my ($bus, $message, $loop) = @_;
+sub busCallBack {
+	my ($self, $bus, $message) = @_;
 
 	if ($message -> type & "error") {
 		warn $message -> error;
-		$loop -> quit();
-	}
-
-	elsif ($message->type & "application") {
-		print "something\n";
+		$self->{loop} -> quit();
 	}
 
 	elsif ($message -> type & "eos") {
-		$loop -> quit();
-		print "Gonna try next song\n";
-		playSong($gstate->{playing_what} + 1);
+		$self->{loop} -> quit();
+		$self->playSong($self->{gstate}->{playing_what} + 1);
 	}
-
 
 	return 1;
 }
 
 sub playSong {
-	my $index = shift;
+	my ($self, $index) = @_;
 
-	unless (defined $files->{$index}) {
+	unless (defined $self->{files}->{$index}) {
 		print "No songs?\n";
 		return;
 	}
 
-	my $file = $files->{$index};
+	my $file = $self->{files}->{$index};
 
-	$gstate->{playing_what} = $index;
-      	$gstate->{playing} = 1;
+	$self->{gstate}->{playing_what} = $index;
+      	$self->{gstate}->{playing} = 1;
 
-	$play->set_state('null');
+	$self->{play}->set_state('null');
 
 	my ($artist, $title, $album) = (
-		$w->{pl}->{data}[$index][2],
-		$w->{pl}->{data}[$index][1],
-		$w->{pl}->{data}[$index][3]
+		$self->{gui}->{w}->{pl}->{data}[$index][2],
+		$self->{gui}->{w}->{pl}->{data}[$index][1],
+		$self->{gui}->{w}->{pl}->{data}[$index][3]
 	);
 
-	#$w->{sb}->pop($w->{sbID});
-	#$w->{sb}->push($w->{sbID}, "[$artist] $title");
 
-	$w->{npl}->set_text("[$artist] $title");
+	$self->{gui}->{w}->{npl}->set_text("[$artist] $title");
 
-	$play -> set(uri => Glib::filename_to_uri($file, "localhost"));
-	$play -> get_bus() -> add_watch(\&my_bus_callback, $loop);
-	$play -> set_state("playing");
+	$self->{play} -> set(uri => Glib::filename_to_uri($file, "localhost"));
+	$self->{play} -> get_bus() -> add_watch(sub {
+			my ($bus, $message, $self) = @_;
+			$self->busCallBack($bus, $message);
+		}, $self
+	);
+	$self->{play} -> set_state("playing");
 
-	Glib::Source->remove ($w->{periodic_time_dec}) if $w->{periodic_time_dec};
-	$w->{periodic_time_dec} = Glib::Timeout->add (1000, sub{getProgress();});
+	Glib::Source->remove ($self->{gui}->{w}->{periodic_time_dec}) if $self->{gui}->{w}->{periodic_time_dec};
+	$self->{gui}->{w}->{periodic_time_dec} = Glib::Timeout->add (1000, sub{
+		my $self = shift;
+		$self->getProgress();
+	}, $self);
 
-
-	$w->{main}->set_title("MicroJuke - [$artist] $title");
+	$self->{gui}->{w}->{main}->set_title("MicroJuke - [$artist] $title");
 }
 
-sub pl_rl_callback {
-	my ($widget, $event) = @_;
-	my $p = $event;
-	my ($index) = $p->get_indices;
-	my $file = $files->{$index};
+1;
 
-	playSong($index);
-	
-	return 0;
+## Keep track of the GUI
+package MicroJuke::GUI;
+
+use strict;
+use warnings;
+
+use Gtk2 qw(-init);
+use Glib qw(TRUE FALSE);
+use Gtk2::SimpleMenu;
+use Gtk2::SimpleList;
+use Data::Dumper;
+use POSIX qw(floor);
+use Data::Dumper;
+
+sub new {
+	my ($class, $play) = @_;
+	my $self = {};
+	bless $self, $class;
+	$self->{play} = $play;
+	$self->{play}->{gui} = $self;
+	$self->init_gui();
+	$self;
 }
 
-my $menu_tree = [
-	_File => {
-		item_type => '<Branch>',
-		children => [
-			'_Parse Library' => {
-				callback => sub{
-					my ($sc, $state) = $play->get_state(4);
-					if ($state ne 'null') {
-						$play->set_state('null');
-					} 
-					Glib::Idle->add(
-						sub{
-							reloadSongList(shift);
-							0;
-						},
-						$w
-					);
-				}
-
-			},
-			_Quit => {
-				callback => sub{Gtk2->main_quit;},
-				callback_action => 0,
-			},
-		]
-	},
-	_Playback => {
-		item_type => '<Branch>',
-		children => [
-			'_Play\/Pause' => {
-				callback => sub {
-					my ($sc, $state) = $play->get_state(4);
-					if ($state eq 'paused') {
-						$play->set_state('playing');
-					} 
-					elsif ($state eq 'playing') {
-						$play->set_state('paused');
-					}
-				},
-			},
-			'_Stop' => {
-				callback => sub {
-					$play->set_state('null');
-					Glib::Source->remove ($w->{periodic_time_dec}) if $w->{periodic_time_dec};
-					$w->{np_timer}->set_text('');
-					$w->{npl}->set_text('Nothing playing');
-					$w->{main}->set_title('MicroJuke');
-				}
-			},
-			'_Next' => {
-				callback => sub {
-					playSong($gstate->{playing_what} + 1);
-				},
-				accelerator => '<ctrl>N'
-			},
-			'_Previous' => {
-				callback => sub {
-					playSong($gstate->{playing_what} - 1);
-				}
-			},
-		]
-
-	}
-];
-
-$w->{main} = new Gtk2::Window 'toplevel';
-$w->{main}->signal_connect(delete_event => sub{Gtk2->main_quit;});
-$w->{mv} = Gtk2::VBox->new;
-$w->{main}->add($w->{mv});
-
-$w->{menu} = Gtk2::SimpleMenu->new(menu_tree => $menu_tree, default_callback => sub {}, user_data => 'user_data');
-
-$w->{menu}->get_widget('/File')->activate;
-
-$w->{pl} = Gtk2::SimpleList->new(
-	'Track' => 'text',
-	'Title' => 'text',
-	'Artist' => 'text',
-	'Album' => 'text',
-	'Time' => 'text',
-);
-
-$w->{pl}->columns_autosize();
-
-map { $_->set_sizing ('autosize') } $w->{pl}->get_columns;
-map { $_->set_resizable (TRUE) } $w->{pl}->get_columns;
-map { $_->set_expand (FALSE) } $w->{pl}->get_columns;
-
-
-$w->{pl}->signal_connect('row-activated' => sub {
-	my ($widget, $event) = @_;
-	pl_rl_callback($widget, $event);
-	return 1;
-});
-
-#$w->{pl}->signal_connect('button-press-event' => sub {
-#	my ($widget, $event) = @_;
-#	pl_rl_callback($widget, $event);
-#	return 0;
-#});
-
-# Player list
-$w->{plc} = Gtk2::ScrolledWindow->new (undef, undef);
-$w->{plc}->set_policy ('automatic', 'always');
-$w->{plc}->set_size_request (500,300);
-
-$w->{mv}->pack_start($w->{menu}->{widget}, 0, 0, 0);
-
-# Currently playing shit
-$w->{np} = Gtk2::HBox->new;
-$w->{mv}->pack_start($w->{np}, 0, 0, 0);
-$w->{npl} = Gtk2::Label->new('Nothing playing');
-$w->{np}->pack_start($w->{npl}, 0, 0, 1);
-$w->{np_timer} = Gtk2::Label->new();
-$w->{np}->pack_end($w->{np_timer}, 0, 0, 1);
-
-# Search
-$w->{search} = Gtk2::HBox->new;
-$w->{mv}->pack_start($w->{search}, 0, 0, 0);
-
-$w->{s_label} = Gtk2::Label->new('Filter: ');
-$w->{search}->pack_start($w->{s_label}, 0, 0, 1);
-
-$w->{s_entry} = Gtk2::Entry->new();
-$w->{search}->pack_start($w->{s_entry}, 0, 0, 0);
-
-$w->{s_status} = Gtk2::Label->new();
-$w->{search}->pack_start($w->{s_status}, 0, 0, 1);
-
-$w->{s_entry}->signal_connect('key-release-event', sub {
-	my ($widget, $event) = @_;
-	search_callback($widget, $event);
-	return 0;
-});
-
-
-sub search_callback {
-	my ($widget, $event) = @_;
-	my $query = $widget->get_text();
-	$query  =~ s/^\s+|\s+$//g ;
-	filterSongs($query);
+sub seconds2minutes {
+	my $secs = shift;
+	return sprintf('%d:%02d', floor($secs / 60), floor($secs % 60));
 }
-
-# Add player list
-$w->{plc}->add($w->{pl});
-$w->{mv}->add($w->{plc});
-
-# Status bar
-$w->{sb} = Gtk2::Statusbar->new();
-$w->{sbID} = $w->{sb}->get_context_id('se');
-$w->{sb}->push($w->{sbID}, '');
-$w->{mv}->pack_end($w->{sb}, 0, 0, 0);
-
-
-# Finalize
-$w->{main}->show_all;
 
 sub toolong {
 	my $str = shift;
@@ -301,14 +175,20 @@ sub toolong {
 	return length($str) > 30 ? substr ($str, 0, 29).'..' : $str;
 }
 
-sub filterSongs {
-	my $query = shift;
+sub plActCallBack {
+	my ($self, $widget, $event) = @_;
+	my $p = $event;
+	my ($index) = $p->get_indices;
+	$self->{play}->playSong($index);
+}
 
+sub filterSongs {
+	my ($self, $query) = @_;
 	my @fsongs;
 
 	if ($query eq '') {
-		@fsongs = @global_songs;
-		$w->{s_status}->set_text('');
+		@fsongs = @{$self->{play}->{all_songs}};
+		$self->{w}->{s_status}->set_text('');
 	}
 	else {
 		@fsongs =
@@ -316,51 +196,203 @@ sub filterSongs {
 			$_->[0] =~ /$query/i ||
 			$_->[1] =~ /$query/i ||
 			$_->[3] =~ /$query/i 
-		, @global_songs);
+		, @{$self->{play}->{all_songs}});
 		my $nf = scalar @fsongs;
-		my $ent = scalar @global_songs;
-		$w->{s_status}->set_text($nf == 0 ? 'No matches' : "Showing $nf/$ent songs");
+		my $ent = scalar @{$self->{play}->{all_songs}};
+		$self->{w}->{s_status}->set_text($nf == 0 ? 'No matches' : "Showing $nf/$ent songs");
 	}
 
-	$files = {};
-	@{$w->{pl}->{data}} = ();
+	$self->{play}->{files} = {};
+	@{$self->{w}->{pl}->{data}} = ();
 	
 	my $i = 0;
 	for (@fsongs) {
-		push @{$w->{pl}->{data}}, [
+		push @{$self->{w}->{pl}->{data}}, [
 			toolong($_->[2]),
 			toolong($_->[3]),
 			toolong($_->[0]),
 			toolong($_->[1]),
 			$_->[5],
 		];
-		$files->{$i} = $_->[4];
+		$self->{play}->{files}->{$i} = $_->[4];
 		$i++;
 	}
 }
 
-sub reloadSongList {
-	my $w = shift;
-	my $path = $dir.'songs.dat';
-	return unless -e $path && -r $path;
-	open(H, '<'.$path);
-	my $songs = fd_retrieve(\*H);
-	close H;
-	@global_songs = @{$songs};
-	filterSongs('');
-
-	$w->{sb}->pop($w->{sbID});
-	$w->{sb}->push($w->{sbID}, scalar(@global_songs).' songs');
+sub searchCallBack {
+	my ($self, $widget, $event) = @_;
+	my $query = $widget->get_text();
+	$query  =~ s/^\s+|\s+$//g ;
+	$self->filterSongs($query);
 }
 
-Glib::Idle->add(
-	sub{
-		reloadSongList(shift);
-		0;
-	},
-	$w
-);
+sub init_gui {
+	my $self = shift;
+	$self->{w} = ();
+	$self->{w}->{main} = new Gtk2::Window 'toplevel';
+	$self->{w}->{main}->signal_connect(delete_event => sub{Gtk2->main_quit;});
+	$self->{w}->{mv} = Gtk2::VBox->new;
+	$self->{w}->{main}->add($self->{w}->{mv});
 
-$w->{main}->set_title('MicroJuke');
+	my $menu_tree = [
+		_File => {
+			item_type => '<Branch>',
+			children => [
+				'_Parse Library' => {
+					callback => sub{
+						my ($sc, $state) = $self->{play}->{play}->get_state(4);
+						if ($state ne 'null') {
+							$self->{play}->{play}->set_state('null');
+						} 
+						Glib::Idle->add(sub {
+								my $self = shift;
+								$self->{play}->reloadSongList();
+								0;
+							}, $self
+						);
+					}
+				},
+				_Quit => {
+					callback => sub{Gtk2->main_quit;},
+					callback_action => 0,
+				},
+			]
+		},
+		_Playback => {
+			item_type => '<Branch>',
+			children => [
+				'_Play\/Pause' => {
+					callback => sub {
+						my ($sc, $state) = $self->{play}->{play}->get_state(4);
+						if ($state eq 'paused') {
+							$self->{play}->{play}->set_state('playing');
+						} 
+						elsif ($state eq 'playing') {
+							$self->{play}->{play}->set_state('paused');
+						}
+					},
+				},
+				'_Stop' => {
+					callback => sub {
+						$self->{play}->{play}->set_state('null');
+						Glib::Source->remove ($self->{w}->{periodic_time_dec}) if $self->{w}->{periodic_time_dec};
+						$self->{w}->{np_timer}->set_text('');
+						$self->{w}->{npl}->set_text('Nothing playing');
+						$self->{w}->{main}->set_title('MicroJuke');
+					}
+				},
+				'_Next' => {
+					callback => sub {
+						$self->{play}->playSong($self->{play}->{gstate}->{playing_what} + 1);
+					},
+					accelerator => '<ctrl>N'
+				},
+				'_Previous' => {
+					callback => sub {
+						$self->{play}->playSong($self->{play}->{gstate}->{playing_what} - 1);
+					}
+				},
+			]
 
-Gtk2->main;
+		}
+	];
+
+	$self->{w}->{menu} = Gtk2::SimpleMenu->new(menu_tree => $menu_tree, default_callback => sub {}, user_data => 'user_data');
+
+	$self->{w}->{menu}->get_widget('/File')->activate;
+
+	$self->{w}->{pl} = Gtk2::SimpleList->new(
+		'Track' => 'text',
+		'Title' => 'text',
+		'Artist' => 'text',
+		'Album' => 'text',
+		'Time' => 'text',
+	);
+
+	$self->{w}->{pl}->columns_autosize();
+
+	map {$_->set_sizing ('autosize')} $self->{w}->{pl}->get_columns;
+	map {$_->set_resizable (TRUE)} $self->{w}->{pl}->get_columns;
+	map {$_->set_expand (FALSE)} $self->{w}->{pl}->get_columns;
+
+	$self->{w}->{pl}->signal_connect('row-activated' => sub {
+		my ($widget, $event, $col, $self) = @_;
+		$self->plActCallBack($widget, $event);
+		return 1;
+	}, $self);
+
+	# Player list
+	$self->{w}->{plc} = Gtk2::ScrolledWindow->new (undef, undef);
+	$self->{w}->{plc}->set_policy ('automatic', 'always');
+	$self->{w}->{plc}->set_size_request (500,300);
+
+	$self->{w}->{mv}->pack_start($self->{w}->{menu}->{widget}, 0, 0, 0);
+
+	# Currently playing shit
+	$self->{w}->{np} = Gtk2::HBox->new;
+	$self->{w}->{mv}->pack_start($self->{w}->{np}, 0, 0, 0);
+	$self->{w}->{npl} = Gtk2::Label->new('Nothing playing');
+	$self->{w}->{np}->pack_start($self->{w}->{npl}, 0, 0, 1);
+	$self->{w}->{np_timer} = Gtk2::Label->new();
+	$self->{w}->{np}->pack_end($self->{w}->{np_timer}, 0, 0, 1);
+
+	# Search
+	$self->{w}->{search} = Gtk2::HBox->new;
+	$self->{w}->{mv}->pack_start($self->{w}->{search}, 0, 0, 0);
+
+	$self->{w}->{s_label} = Gtk2::Label->new('Filter: ');
+	$self->{w}->{search}->pack_start($self->{w}->{s_label}, 0, 0, 1);
+
+	$self->{w}->{s_entry} = Gtk2::Entry->new();
+	$self->{w}->{search}->pack_start($self->{w}->{s_entry}, 0, 0, 0);
+
+	$self->{w}->{s_status} = Gtk2::Label->new();
+	$self->{w}->{search}->pack_start($self->{w}->{s_status}, 0, 0, 1);
+
+	$self->{w}->{s_entry}->signal_connect('key-release-event', sub {
+		my ($widget, $event, $self) = @_;
+		$self->searchCallBack($widget, $event);
+		return 0;
+	}, $self);
+
+	# Add player list
+	$self->{w}->{plc}->add($self->{w}->{pl});
+	$self->{w}->{mv}->add($self->{w}->{plc});
+
+	# Status bar
+	$self->{w}->{sb} = Gtk2::Statusbar->new();
+	$self->{w}->{sbID} = $self->{w}->{sb}->get_context_id('se');
+	$self->{w}->{sb}->push($self->{w}->{sbID}, '');
+	$self->{w}->{mv}->pack_end($self->{w}->{sb}, 0, 0, 0);
+
+	# Finalize
+	$self->{w}->{main}->show_all;
+	$self->{w}->{main}->set_title('MicroJuke');
+
+	# Load intiial song list
+	Glib::Idle->add(
+		sub{
+			my $self = shift;
+			$self->{play}->reloadSongList(shift);
+			0;
+		},
+		$self
+	);
+
+	Gtk2->main;
+}
+
+1;
+
+## Start us up
+package main;
+
+use warnings;
+use strict;
+
+MicroJuke::Conf::init();
+
+my $play = MicroJuke::Play->new;
+my $gui = MicroJuke::GUI->new($play);
+
+1;

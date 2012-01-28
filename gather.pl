@@ -64,6 +64,7 @@ if ($action eq 'parse') {
 		}
 		elsif ($_ =~ m/\.ogg$/) {
 			my $ogg = Ogg::Vorbis::Header->new($File::Find::name);
+			return unless $ogg;
 			my $oggi = ();
 			$oggi->{time} = seconds2minutes(floor($ogg->info->{length}));
 			for my $key ($ogg->comment_tags) {
@@ -92,9 +93,33 @@ if ($action eq 'parse') {
 			print "ogg - $artist, $album, $title\n";
 		}
 		elsif ($_ =~ m/\.flac$/) {
-	#		my $flac = Audio::FLAC::Header->new($File::Find::name);
-	#		my $info = $flac->info();
-			return;
+			my $flac = Audio::FLAC::Header->new($File::Find::name);
+			return unless $flac;
+			$time = $flac->{trackLengthMinutes}*60 + $flac->{trackLengthSeconds};
+			my $info = $flac->tags();
+			my $flaci = ();
+			for my $key (qw(ARTIST ALBUM TITLE TRACKNUMBER)) {
+				next unless defined $info->{$key};
+				if ($key eq 'ARTIST') {
+					$flaci->{artist} = $info->{$key};
+				}
+				elsif ($key eq 'ALBUM') {
+					$flaci->{album} = $info->{$key};
+				}
+				elsif ($key eq 'TITLE') {
+					$flaci->{title} = $info->{$key};
+				}
+				elsif ($key eq 'TRACKNUMBER') {
+					$flaci->{tracknum} = $info->{$key};
+				}
+			}
+			return unless defined $flaci->{artist} && defined $flaci->{album} && defined $flaci->{title};
+			return unless $flaci->{artist} ne '' && $flaci->{album} ne '' && $flaci->{title} ne '';
+			($artist, $album, $title, $time, $tracknum) = (
+				$flaci->{artist}, $flaci->{album}, $flaci->{title}, $flaci->{time},
+				defined $flaci->{tracknum} && $flaci->{tracknum} =~ /^(\d+)$/ ? $1 : 0
+			);
+			print "flac - $artist, $album, $title\n";
 		}
 		else {
 			return;

@@ -1,5 +1,7 @@
 #!/usr/bin/env perl
 
+BEGIN {$| = 1; }
+
 # Joe Gillotti - 1/26/2012
 
 use strict;
@@ -38,6 +40,17 @@ my $gstate = {
 my $loop = Glib::MainLoop -> new();
 my $play = GStreamer::ElementFactory -> make("playbin", "play");
 
+
+sub getProgress {
+
+	my $gst = GStreamer::Query::Position->new ('time');
+	if ($play->query($gst)) {
+		print Dumper($gst->position('time'));
+	}
+
+}
+
+
 sub my_bus_callback {
 	my ($bus, $message, $loop) = @_;
 
@@ -46,11 +59,18 @@ sub my_bus_callback {
 		$loop -> quit();
 	}
 
+	elsif ($message->type & "application") {
+		print "something\n";
+	}
+
 	elsif ($message -> type & "eos") {
 		$loop -> quit();
 		print "Gonna try next song\n";
 		playSong($gstate->{playing_what} + 1);
 	}
+
+
+	return 1;
 }
 
 sub playSong {
@@ -83,6 +103,10 @@ sub playSong {
 	$play -> set(uri => Glib::filename_to_uri($file, "localhost"));
 	$play -> get_bus() -> add_watch(\&my_bus_callback, $loop);
 	$play -> set_state("playing");
+
+	Glib::Source->remove ($w->{periodic_time_dec}) if $w->{periodic_time_dec};
+	$w->{periodic_time_dec} = Glib::Timeout->add (1000, sub{getProgress();});
+	
 }
 
 sub pl_rl_callback {
@@ -139,6 +163,7 @@ my $menu_tree = [
 			'_Stop' => {
 				callback => sub {
 					$play->set_state('null');
+					Glib::Source->remove ($w->{periodic_time_dec}) if $w->{periodic_time_dec};
 				}
 			},
 			'_Next' => {
@@ -210,11 +235,15 @@ $w->{search}->pack_start($w->{s_label}, 0, 0, 0);
 $w->{s_entry} = Gtk2::Entry->new();
 $w->{search}->pack_start($w->{s_entry}, 0, 0, 0);
 
+$w->{s_status} = Gtk2::Label->new();
+$w->{search}->pack_start($w->{s_status}, 0, 0, 0);
+
 $w->{s_entry}->signal_connect('key-release-event', sub {
 	my ($widget, $event) = @_;
 	search_callback($widget, $event);
 	return 0;
 });
+
 
 sub search_callback {
 	my ($widget, $event) = @_;
@@ -247,12 +276,23 @@ sub toolong {
 sub filterSongs {
 	my $query = shift;
 
-	my @fsongs = $query eq '' ? @global_songs  :
+	my @fsongs;
+
+	if ($query eq '') {
+		@fsongs = @global_songs;
+		$w->{s_status}->set_text('');
+	}
+	else {
+		@fsongs =
 		grep (
 			$_->[0] =~ /$query/i ||
 			$_->[1] =~ /$query/i ||
 			$_->[3] =~ /$query/i 
 		, @global_songs);
+		my $nf = scalar @fsongs;
+		my $ent = scalar @global_songs;
+		$w->{s_status}->set_text($nf == 0 ? 'No matches' : "Showing $nf/$ent songs");
+	}
 
 	$files = {};
 	@{$w->{pl}->{data}} = ();
@@ -279,7 +319,6 @@ sub reloadSongList {
 	my $songs = fd_retrieve(\*H);
 	close H;
 	@global_songs = @{$songs};
-	
 	filterSongs('');
 }
 

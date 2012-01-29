@@ -1,4 +1,19 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl
+
+# This file is part of MicroJuke (c) 2012 Joe Gillotti.
+# 
+# MicroJuke is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# MicroJuke is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with MicroJuke.  If not, see <http://www.gnu.org/licenses/>.
 
 ## Maintain settings and so on
 package MicroJuke::Conf;
@@ -6,16 +21,96 @@ package MicroJuke::Conf;
 use warnings;
 use strict;
 
+use File::Basename;
+use Cwd;
+
 my $dir = $ENV{HOME}.'/.microjuke/';
+
+my %settings = (
+	pluginPath => [
+		$ENV{HOME}.'/.microjuke/plugins/',
+		getcwd().'/plugins/',
+		'/usr/share/microjuke/plugins/'
+	]
+);
 
 sub init {
 	unless (-d $dir) {
 		print "Error making data dir folder '$dir`: $! \n" unless mkdir($dir);
 	}
+	$settings{dir} = $dir;
 }
 
-sub getDir {
-	$dir;
+sub getVal {
+	my $key = shift;
+	return defined $settings{$key} ? $settings{$key} : undef;
+}
+
+1;
+
+## Load plugins and register their hooks and whatever else they need to function
+package MicroJuke::Plugin;
+
+use warnings;
+use strict;
+
+use File::Basename;
+
+sub new {
+	my $self = {};
+	bless $self;
+}
+
+# Find plugin file, load it, start it off by localizing it 
+# with our useful pre-existing objects so it can interact and 
+# assign events.
+sub load {
+	my ($self, $plugin) = @_;
+	my $path = '';
+	for (@{MicroJuke::Conf::getVal('pluginPath')}) {
+		if (-e "$_$plugin.pl") {
+			$path = "$_$plugin.pl";
+			last;
+		}
+	}
+	unless ($path) {
+		print "Failed finding file for plugin $plugin\n";
+		return 0;
+	}
+	eval {
+		require $path;
+		my $package = "MicroJuke::Plugin::$plugin";
+		$self->{hooks}->{$plugin} = $package->new({
+			gui => $self->{gui},
+			play => $self->{play}
+		});
+		return 1;
+	} or warn "Couldn't load plugin $plugin:\n $@\n";
+}
+
+# Same as above, but for all we can find. Each package name has a priority
+# so local ones take precedence over global/system-wide ones.
+sub loadAll {
+	my $self = shift;
+	my $pkg;
+	my %packages;
+	for (@{MicroJuke::Conf::getVal('pluginPath')}) {
+		for my $path (glob "$_*.pl") {
+			($pkg = basename($path)) =~ s/\.pl$//g;
+			$packages{$pkg} = $path;
+		}
+	}
+	for (keys %packages) {
+		eval {
+			require $packages{$_};
+			my $package = "MicroJuke::Plugin::$_";
+			$self->{hooks}->{$_} = $package->new({
+				gui => $self->{gui},
+				play => $self->{play}
+			});
+			return 1;
+		} or warn "Couldn't load plugin $_:\n $@\n";
+	}
 }
 
 1;
@@ -31,25 +126,30 @@ use Glib qw(TRUE FALSE);
 use Storable qw(store_fd fd_retrieve);
 use POSIX qw(floor);
 
+use Data::Dumper;
+
 sub new {
-	my ($class) = @_;
 	my $self = {};
-	bless $self, $class;
 	$self->{all_songs} = ();
 	$self->{files} = {};
 	$self->{gstate} = {
 		playing => 0,
-		playing_what => -1
+		playing_what => -1,
+		scrobbled => 0,
+
+		artist => undef,
+		album => undef,
+		song => undef,
+		duration => undef
 	};
 	$self->{loop} = Glib::MainLoop -> new();
 	$self->{play} = GStreamer::ElementFactory -> make("playbin", "play");
-
-	$self;
+	bless $self;
 }
 
 sub reloadSongList {
 	my $self = shift;
-	my $path = MicroJuke::Conf::getDir().'songs.dat';
+	my $path = MicroJuke::Conf::getVal('dir').'songs.dat';
 	return unless -e $path && -r $path;
 	open(H, '<'.$path);
 	my $songs = fd_retrieve(\*H);
@@ -67,18 +167,20 @@ sub getProgress {
 	my ($progress, $duration, $pfield, $dfield);
 	if ($self->{play}->query($gst)) {
 		($pfield, $progress) = $gst->position('time');
-		$progress = MicroJuke::GUI::seconds2minutes(floor($progress / 1000000000));
+		$progress = floor($progress / 1000000000);
 	}
 
 	my $dst = GStreamer::Query::Duration->new ('time');
 	if ($self->{play}->query($dst)) {
 		($dfield, $duration) = $dst->duration('time');
-		$duration = MicroJuke::GUI::seconds2minutes(floor($duration / 1000000000));
+		$duration = floor($duration / 1000000000);
 	}
 
-	return 0 if !$progress || !$duration;
+	return 0 if !defined $progress || !defined $duration;
 
-	$self->{gui}->{w}->{np_timer}->set_text("$progress of $duration");
+      	$self->{gstate}->{duration} = $duration;
+
+	$self->{gui}->{w}->{np_timer}->set_text(MicroJuke::GUI::seconds2minutes($progress).' of '.MicroJuke::GUI::seconds2minutes($duration));
 
 	return 1;
 }
@@ -92,18 +194,37 @@ sub busCallBack {
 
 	elsif ($message -> type & "eos") {
 		$self->{loop}->quit();
+		for (keys %{$self->{plugins}->{hooks}}) {
+			if ($self->{plugins}->{hooks}->{$_}->can('onSongEnd')) {
+				$self->{plugins}->{hooks}->{$_}->onSongEnd();
+			}
+		}
 		$self->playSong($self->{gstate}->{playing_what} + 1);
 	}
 
 	return 1;
 }
 
+sub stopPlaying {
+	my $self = shift;
+
+      	$self->{gstate}->{artist} = undef;
+      	$self->{gstate}->{album} = undef;
+      	$self->{gstate}->{title} = undef;
+      	$self->{gstate}->{duration} = undef;
+
+	$self->{play}->set_state('null');
+	Glib::Source->remove ($self->{gui}->{w}->{periodic_time_dec}) if $self->{gui}->{w}->{periodic_time_dec};
+	$self->{gui}->{w}->{np_timer}->set_text('');
+	$self->{gui}->{w}->{npl}->set_text('Nothing playing');
+	$self->{gui}->{w}->{main}->set_title('MicroJuke');
+}
+
 sub playSong {
 	my ($self, $index) = @_;
 
 	unless (defined $self->{files}->{$index}) {
-		print "No songs?\n";
-		return;
+		$index = 0;
 	}
 
 	my $file = $self->{files}->{$index};
@@ -119,6 +240,9 @@ sub playSong {
 		$self->{gui}->{w}->{pl}->{data}[$index][3]
 	);
 
+      	$self->{gstate}->{artist} = $artist;
+      	$self->{gstate}->{album} = $album;
+      	$self->{gstate}->{title} = $title;
 
 	$self->{gui}->{w}->{npl}->set_text("[$artist] $title");
 
@@ -137,6 +261,13 @@ sub playSong {
 	}, $self);
 
 	$self->{gui}->{w}->{main}->set_title("MicroJuke - [$artist] $title");
+
+	# Go through plugins supporting some action or whatever here
+	for my $plugin (keys %{$self->{plugins}->{hooks}}) {
+		if ($self->{plugins}->{hooks}->{$plugin}->can('onSongStart')) {
+			$self->{plugins}->{hooks}->{$plugin}->onSongStart();
+		}
+	}
 }
 
 1;
@@ -156,13 +287,8 @@ use POSIX qw(floor);
 use Data::Dumper;
 
 sub new {
-	my ($class, $play) = @_;
 	my $self = {};
-	bless $self, $class;
-	$self->{play} = $play;
-	$self->{play}->{gui} = $self;
-	$self->init_gui();
-	$self;
+	bless $self;
 }
 
 sub seconds2minutes {
@@ -277,11 +403,7 @@ sub init_gui {
 				},
 				'_Stop' => {
 					callback => sub {
-						$self->{play}->{play}->set_state('null');
-						Glib::Source->remove ($self->{w}->{periodic_time_dec}) if $self->{w}->{periodic_time_dec};
-						$self->{w}->{np_timer}->set_text('');
-						$self->{w}->{npl}->set_text('Nothing playing');
-						$self->{w}->{main}->set_title('MicroJuke');
+						$self->{play}->stopPlaying();
 					}
 				},
 				'_Next' => {
@@ -387,13 +509,15 @@ sub init_gui {
 		$self->die;
 	}, $self);
 
+	# Start up
 	Gtk2->main;
 }
 
 sub die {
 	my $self = shift;
-	$self->{play}->{play}->set_state('null');
 	Glib::Source->remove ($self->{w}->{periodic_time_dec}) if $self->{w}->{periodic_time_dec};
+	# Properly kill the audio stream otherwise we'll get gstreamer errors upon program close
+	$self->{play}->{play}->set_state('null');
 	Gtk2->main_quit;
 }
 
@@ -402,12 +526,29 @@ sub die {
 ## Start us up
 package main;
 
+BEGIN {$| = 1;}
+
 use warnings;
 use strict;
 
 MicroJuke::Conf::init();
 
+my $plugins = MicroJuke::Plugin->new;
 my $play = MicroJuke::Play->new;
-my $gui = MicroJuke::GUI->new($play);
+my $gui = MicroJuke::GUI->new;
+
+$play->{plugins} = $plugins;
+$play->{gui} = $gui;
+
+$gui->{plugins} = $plugins;
+$gui->{play} = $play;
+
+$plugins->{gui} = $gui;
+$plugins->{play} = $play;
+
+$plugins->loadAll();
+
+# This will block until gtk dies, so call it last
+$gui->init_gui();
 
 1;

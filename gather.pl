@@ -1,12 +1,5 @@
 #!/usr/bin/perl
 
-# Joe Gillotti - 1/26/2012 - BSD License
-
-# install:
-# sudo apt-get install libgstreamer-perl libgstreamer-interfaces-perl  libgtk2-perl libmp3-info-perl libogg-vorbis-header-perl libaudio-flac-header-perl
-# -or-
-# yum install perl-Gtk2 perl-MP3-Info perl-GStreamer
-
 use strict;
 use warnings;
 use MP3::Info;

@@ -24,14 +24,21 @@ use strict;
 use File::Basename;
 use Cwd;
 
-my $dir = $ENV{HOME}.'/.microjuke/';
+my $home = Glib::get_home_dir() || $ENV{HOME};
+my $dir = $home.'/.microjuke/';
 
 my %settings = (
 	pluginPath => [
-		$ENV{HOME}.'/.microjuke/plugins/',
+		$home.'/.microjuke/plugins/',
 		getcwd().'/plugins/',
 		'/usr/share/microjuke/plugins/'
-	]
+	],
+	iconPath => [
+		$home.'/.microjuke/icons/',
+		getcwd().'/icons/',
+		'/usr/share/microjuke/icons/'
+	],
+	dir => $dir
 );
 
 sub init {
@@ -46,6 +53,19 @@ sub getVal {
 	return defined $settings{$key} ? $settings{$key} : undef;
 }
 
+sub findInPaths {
+	my ($paths, $file) = @_;
+	my $path = undef;
+	for (<@{$paths}>) {
+		$_ .= '/' unless m/\/$/;
+		if ( -e $_.$file) {
+			$path = $_.$file;
+			last;
+		}
+	}
+	$path;
+}
+
 1;
 
 ## Load plugins and register their hooks and whatever else they need to function
@@ -58,6 +78,7 @@ use File::Basename;
 
 sub new {
 	my $self = {};
+	$self->{loaded} = ();
 	bless $self;
 }
 
@@ -84,6 +105,7 @@ sub load {
 			gui => $self->{gui},
 			play => $self->{play}
 		});
+		push @{$self->{loaded}}, $plugin;
 		return 1;
 	} or warn "Couldn't load plugin $plugin:\n $@\n";
 }
@@ -144,6 +166,11 @@ sub new {
 	};
 	$self->{loop} = Glib::MainLoop -> new();
 	$self->{play} = GStreamer::ElementFactory -> make("playbin", "play");
+
+	unless ($self->{play}) {
+		die "Cannot open audio playbin\n";
+	}
+
 	bless $self;
 }
 
@@ -229,6 +256,7 @@ sub playSong {
 
 	my $file = $self->{files}->{$index};
 
+
 	$self->{gstate}->{playing_what} = $index;
       	$self->{gstate}->{playing} = 1;
 
@@ -243,6 +271,8 @@ sub playSong {
       	$self->{gstate}->{artist} = $artist;
       	$self->{gstate}->{album} = $album;
       	$self->{gstate}->{title} = $title;
+
+      	$self->{gstate}->{timeStarted} = time();
 
 	$self->{gui}->{w}->{npl}->set_text("[$artist] $title");
 
@@ -358,6 +388,17 @@ sub init_gui {
 	my $self = shift;
 	$self->{w} = ();
 	$self->{w}->{main} = new Gtk2::Window 'toplevel';
+
+	my $icon_path = undef; 
+	for (@{MicroJuke::Conf::getVal('iconPath')}) {
+		if (-e $_.'16x16.png') {
+			$icon_path = $_.'16x16.png';
+			last;
+		}
+	}
+	$self->{w}->{main}->set_default_icon_from_file($icon_path);
+
+
 	$self->{w}->{mv} = Gtk2::VBox->new;
 	$self->{w}->{main}->add($self->{w}->{mv});
 
@@ -392,6 +433,7 @@ sub init_gui {
 			children => [
 				'_Play\/Pause' => {
 					callback => sub {
+						return unless defined $self->{play}->{play};
 						my ($sc, $state) = $self->{play}->{play}->get_state(4);
 						if ($state eq 'paused') {
 							$self->{play}->{play}->set_state('playing');
@@ -419,6 +461,22 @@ sub init_gui {
 				},
 			]
 
+		},
+		_Help => {
+			item_type=>'<Branch>',
+			children => [
+				'_About' => {
+					callback => sub {
+						$self->show_about();
+					}
+				},
+				'_Auth Last FM' => {
+					callback => sub {
+						$self->{plugins}->{hooks}->{LastFM}->beginAuth();
+					}
+				}
+
+			]
 		}
 	];
 
@@ -513,11 +571,35 @@ sub init_gui {
 	Gtk2->main;
 }
 
+sub show_about {
+	my $self = shift;
+	my $w = Gtk2::AboutDialog->new;
+	my $icon_path = MicroJuke::Conf::findInPaths(MicroJuke::Conf::getVal('iconPath'), '64x64.png');
+	if ($icon_path) {
+		$w->set_logo(Gtk2::Gdk::Pixbuf->new_from_file($icon_path));
+	}
+	$w->set_license('GPL');
+	$w->set_program_name('MicroJuke');
+	$w->set_authors('Joe Gillotti');
+	$w->set_copyright('(c) 2012 Joe Gillotti');
+	$w->set_comments('A simple music player for Unix');
+	$w->show_all;
+	$w->run;
+	$w->destroy;
+}
+
+sub openWebBrowser {
+	open my $pipe, '-|', '/usr/bin/xdg-open', shift;
+	close $pipe;
+}
+
 sub die {
 	my $self = shift;
 	Glib::Source->remove ($self->{w}->{periodic_time_dec}) if $self->{w}->{periodic_time_dec};
 	# Properly kill the audio stream otherwise we'll get gstreamer errors upon program close
-	$self->{play}->{play}->set_state('null');
+	if (defined $self->{play}->{play}) {
+		$self->{play}->{play}->set_state('null') if $self->{play}->{play}->can('set_state');
+	}
 	Gtk2->main_quit;
 }
 

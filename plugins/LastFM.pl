@@ -29,7 +29,6 @@ use URI::Escape;
 use constant apiKey => 'e40c04743632809d8176349ed86d2ade';
 use constant secretKey => 'c91395a441ec56416536ab1e83a3c82a';
 
-
 sub new {
 	print "LastFM module loaded\n";
 	my $self = $_[1];
@@ -46,7 +45,11 @@ sub new {
 
 sub onSongStart {
 	my $self = shift;
-	$self->updateNowPlaying();
+	Glib::Idle->add(sub {
+			shift->updateNowPlaying();
+			0;
+		}, $self
+	);
 }
 
 sub onSongEnd {
@@ -54,7 +57,11 @@ sub onSongEnd {
 	
 	# Scrobble-worthy, as per http://www.last.fm/api/scrobbling#scrobble-requests ?
 	if ($self->{play}->{gstate}->{duration} > 30) {
-		$self->doScrobble();
+		Glib::Idle->add(sub {
+				shift->doScrobble();
+				0;
+			}, $self
+		);
 	}
 
 	print "Just listened to ".$self->{play}->{gstate}->{title}." at ".MicroJuke::GUI::seconds2minutes($self->{play}->{gstate}->{duration})." \n";
@@ -202,7 +209,7 @@ sub getWebServiceSession {
 	my $req = HTTP::Request->new(GET => 'http://ws.audioscrobbler.com/2.0/?method=auth.getSession&api_key='.apiKey.'&token='.$self->{state}->{token}.'&api_sig='.$sig);
 	my $res = $ua->request($req);
 	my $ref = XMLin $res->content;
-	if ($ref->{status} eq 'failed') {
+	if ($ref->{status} ne 'ok') {
 		if ($ref->{error}->{code} == 14) {
 			print "Gonna prompt the user to auth in their browser..\n";
 			$self->passTheUser;
@@ -215,13 +222,11 @@ sub getWebServiceSession {
 			return;
 		}
 		else {
+			print Dumper($ref);
 			print "Error code: ".$ref->{error}->{code}."\n";
 			return;
 		}
-		return;
 	}
-
-	print Dumper($ref);
 
 	$self->{state}->{authkey} = $ref->{session}->{key};
 	$self->{state}->{username} = $ref->{session}->{name};

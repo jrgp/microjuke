@@ -10,6 +10,8 @@ use File::Find;
 use Storable qw(store_fd fd_retrieve);
 use POSIX qw(floor);
 
+use utf8;
+
 my $dir = $ENV{HOME}.'/.microjuke/';
 
 unless (-d $dir) {

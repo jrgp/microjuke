@@ -459,6 +459,11 @@ sub init_gui {
 						$self->{play}->playSong($self->{play}->{gstate}->{playing_what} - 1);
 					}
 				},
+				'_Auth Last FM' => {
+					callback => sub {
+						$self->{plugins}->{hooks}->{LastFM}->beginAuth();
+					}
+				}
 			]
 
 		},
@@ -470,12 +475,6 @@ sub init_gui {
 						$self->show_about();
 					}
 				},
-				'_Auth Last FM' => {
-					callback => sub {
-						$self->{plugins}->{hooks}->{LastFM}->beginAuth();
-					}
-				}
-
 			]
 		}
 	];
@@ -612,6 +611,7 @@ BEGIN {$| = 1;}
 
 use warnings;
 use strict;
+use utf8;
 
 MicroJuke::Conf::init();
 

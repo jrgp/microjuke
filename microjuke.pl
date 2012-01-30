@@ -146,7 +146,7 @@ use strict;
 use GStreamer -init;
 use Glib qw(TRUE FALSE);
 use Storable qw(store_fd fd_retrieve);
-use POSIX qw(floor);
+use POSIX qw(floor ceil);
 
 use Data::Dumper;
 
@@ -157,6 +157,7 @@ sub new {
 	$self->{gstate} = {
 		playing => 0,
 		playing_what => -1,
+		file => undef,
 		scrobbled => 0,
 
 		artist => undef,
@@ -207,6 +208,8 @@ sub getProgress {
 
       	$self->{gstate}->{duration} = $duration;
 
+	$self->{gui}->{w}->{slider_a}->set_value((($progress/$duration)*100));
+
 	$self->{gui}->{w}->{np_timer}->set_text(MicroJuke::GUI::seconds2minutes($progress).' of '.MicroJuke::GUI::seconds2minutes($duration));
 
 	return 1;
@@ -239,6 +242,9 @@ sub stopPlaying {
       	$self->{gstate}->{album} = undef;
       	$self->{gstate}->{title} = undef;
       	$self->{gstate}->{duration} = undef;
+	$self->{gstate}->{file} = undef;
+
+	$self->{gui}->{w}->{slider_a}->set_value(0.0);
 
 	$self->{play}->set_state('null');
 	Glib::Source->remove ($self->{gui}->{w}->{periodic_time_dec}) if $self->{gui}->{w}->{periodic_time_dec};
@@ -258,7 +264,10 @@ sub playSong {
 
 
 	$self->{gstate}->{playing_what} = $index;
+	$self->{gstate}->{file} = $file;
       	$self->{gstate}->{playing} = 1;
+
+	$self->{gui}->{w}->{slider_a}->set_value(0.0);
 
 	$self->{play}->set_state('null');
 
@@ -291,6 +300,7 @@ sub playSong {
 	}, $self);
 
 	$self->{gui}->{w}->{main}->set_title("MicroJuke - [$artist] $title");
+
 
 	# Go through plugins supporting some action or whatever here
 	for my $plugin (keys %{$self->{plugins}->{hooks}}) {
@@ -364,6 +374,8 @@ sub filterSongs {
 	@{$self->{w}->{pl}->{data}} = ();
 	
 	my $i = 0;
+	my $realized = 0;
+	my ($sc, $state) = $self->{play}->{play}->get_state(4);
 	for (@fsongs) {
 		push @{$self->{w}->{pl}->{data}}, [
 			toolong($_->[2]),
@@ -373,7 +385,20 @@ sub filterSongs {
 			$_->[5],
 		];
 		$self->{play}->{files}->{$i} = $_->[4];
+
+		# In this new filter, try to set the current playing index to the proper file 
+		if (($state eq 'playing' || $state eq 'paused') && defined $self->{play}->{gstate}->{file} &&
+			$self->{play}->{gstate}->{file} eq $_->[4]) {
+			$self->{play}->{gstate}->{playing_what} = $i;
+			$realized = 1;
+		}
 		$i++;
+	}
+
+	# After filtering, if we haven't found our current song in the new filter, 
+	# make the next song just be the beginning of the current filter
+	if (!$realized && ($state eq 'playing' || $state eq 'paused')) {
+		$self->{play}->{gstate}->{playing_what} = -1;
 	}
 }
 
@@ -534,6 +559,19 @@ sub init_gui {
 	$self->{w}->{s_entry}->signal_connect('key-release-event', sub {
 		my ($widget, $event, $self) = @_;
 		$self->searchCallBack($widget, $event);
+		return 0;
+	}, $self);
+
+	# Slider
+	$self->{w}->{slider_a} = Gtk2::Adjustment->new(0.0, 0, 101.0, 0.1, 1.0, 1.0);
+	$self->{w}->{slider} = Gtk2::HScale->new( $self->{w}->{slider_a});
+	$self->{w}->{slider}->set_size_request(200, -1);
+	$self->{w}->{slider}->set_draw_value(0);
+	$self->{w}->{search}->pack_end($self->{w}->{slider}, 0, 0, 0);
+
+	$self->{w}->{slider_a}->signal_connect('value-changed', sub {
+		my ($widget, $self) = @_;
+	#	print Dumper($widget->get_value);
 		return 0;
 	}, $self);
 

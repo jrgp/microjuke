@@ -159,7 +159,6 @@ sub new {
 		playing_what => -1,
 		file => undef,
 		scrobbled => 0,
-
 		artist => undef,
 		album => undef,
 		song => undef,
@@ -482,6 +481,16 @@ sub init_gui {
 				'_Previous' => {
 					callback => sub {
 						$self->{play}->playSong($self->{play}->{gstate}->{playing_what} - 1);
+					}
+				},
+				'_Jump to current song' => {
+					callback => sub {
+						if ($self->{play}->{gstate}->{playing_what} > -1) {
+							my $path = Gtk2::TreePath->new_from_indices($self->{play}->{gstate}->{playing_what});
+							$self->{w}->{pl}->scroll_to_cell($path);
+							$self->{w}->{pl}->set_cursor($path);
+							
+						}
 					}
 				},
 				'_Auth Last FM' => {

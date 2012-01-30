@@ -10,6 +10,8 @@ use File::Find;
 use Storable qw(store_fd fd_retrieve);
 use POSIX qw(floor);
 
+BEGIN {$| = 1;}
+
 use utf8;
 
 my $dir = $ENV{HOME}.'/.microjuke/';
@@ -45,18 +47,24 @@ sub parse {
 	return if (! -f $File::Find::name);
 	if ($_ =~ m/\.mp3$/) {
 		my $mp3 = new MP3::Info $File::Find::name;
-		return unless $mp3;
+		unless ($mp3) {
+			print "Fucked up: ".$File::Find::name."\n";
+			return;
+		}
 		return unless defined $mp3->artist && defined $mp3->album && defined $mp3->title;
 		return unless $mp3->artist ne '' && $mp3->album ne '' && $mp3->title ne '';
 		($artist, $album, $title, $time, $tracknum) = (
 			$mp3->artist, $mp3->album, $mp3->title, $mp3->time,
 			defined $mp3->tracknum && $mp3->tracknum =~ /^(\d+)$/ ? $1 : 0
 		);
-		print "mp3 - $artist, $album, $title\n";
+	#	print "mp3 - $artist, $album, $title\n";
 	}
 	elsif ($_ =~ m/\.ogg$/) {
 		my $ogg = Ogg::Vorbis::Header->new($File::Find::name);
-		return unless $ogg;
+		unless ($ogg) {
+			print "Fucked up: ".$File::Find::name."\n";
+			return;
+		}
 		my $oggi = ();
 		$oggi->{time} = seconds2minutes(floor($ogg->info->{length}));
 		for my $key ($ogg->comment_tags) {
@@ -82,11 +90,14 @@ sub parse {
 			$oggi->{artist}, $oggi->{album}, $oggi->{title}, $oggi->{time},
 			defined $oggi->{tracknum} && $oggi->{tracknum} =~ /^(\d+)$/ ? $1 : 0
 		);
-		print "ogg - $artist, $album, $title\n";
+	#	print "ogg - $artist, $album, $title\n";
 	}
 	elsif ($_ =~ m/\.flac$/) {
 		my $flac = Audio::FLAC::Header->new($File::Find::name);
-		return unless $flac;
+		unless ($flac) {
+			print "Fucked up: ".$File::Find::name."\n";
+			return;
+		}
 		my $info = $flac->tags();
 		my $flaci = ();
 		$flaci->{time} = seconds2minutes(($flac->{trackLengthMinutes}*60) + $flac->{trackLengthSeconds});
@@ -111,10 +122,17 @@ sub parse {
 			$flaci->{artist}, $flaci->{album}, $flaci->{title}, $flaci->{time},
 			defined $flaci->{tracknum} && $flaci->{tracknum} =~ /^(\d+)$/ ? $1 : 0
 		);
-		print "flac - $artist, $album, $title\n";
+	#	print "flac - $artist, $album, $title\n";
 	}
 	else {
 		return;
+	}
+
+	print "Inserting $artist - $album - $title\n";
+
+	# Attempt getting tracknumber from file prefix
+	if ($tracknum == 0 && m/^(\d+)[\.\-]? /) {
+		$tracknum = 1;
 	}
 
 	push @songs, [$artist, $album, $tracknum, $title, $File::Find::name, $time];

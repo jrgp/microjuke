@@ -53,14 +53,23 @@ sub onSongStart {
 }
 
 sub onSongEnd {
-	my $self = shift;
+	my ($self) = shift;
 	
+	my $gstate = {};
+
+	# Main gstate variable is changed almost immediately, so the next song
+	# in the list will get scrobbled instead....let's make a stagnant copy of it
+	for (keys %{$self->{play}->{gstate}}) {
+		$gstate->{$_} = $self->{play}->{gstate}->{$_};
+	}
+
 	# Scrobble-worthy, as per http://www.last.fm/api/scrobbling#scrobble-requests ?
 	if ($self->{play}->{gstate}->{duration} > 30) {
 		Glib::Idle->add(sub {
-				shift->doScrobble();
+				my ($self, $gstate) = @{$_[0]};
+				$self->doScrobble($gstate);
 				0;
-			}, $self
+			}, [$self, $gstate]
 		);
 	}
 
@@ -73,15 +82,15 @@ sub onSongEnd {
 ######################################
 
 sub doScrobble {
-	my $self = shift;
+	my ($self, $gstate) = @_;
 	my $calls = [
-		['album', $self->{play}->{gstate}->{album}],
+		['album', $gstate->{album}],
 		['api_key', apiKey],
-		['artist', $self->{play}->{gstate}->{artist}],
+		['artist', $gstate->{artist}],
 		['method', 'track.scrobble'],
 		['sk', $self->{state}->{authkey}],
-		['timestamp', $self->{play}->{gstate}->{timeStarted}],
-		['track', $self->{play}->{gstate}->{title}],
+		['timestamp', $gstate->{timeStarted}],
+		['track', $gstate->{title}],
 	];
 	my @fields;
 	for (@{$calls}) {

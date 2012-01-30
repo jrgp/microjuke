@@ -371,6 +371,13 @@ sub filterSongs {
 
 	$self->{play}->{files} = {};
 	@{$self->{w}->{pl}->{data}} = ();
+
+	# Sort dem bitches
+	@fsongs = sort {
+		$a->[0] cmp $b->[0] || # Artist
+		$a->[1] cmp $b->[1] || # Album
+		$a->[2] <=> $b->[2] # Tracknum
+	} @fsongs;
 	
 	my $i = 0;
 	my $realized = 0;

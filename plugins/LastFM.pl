@@ -29,9 +29,44 @@ use URI::Escape;
 use constant apiKey => 'e40c04743632809d8176349ed86d2ade';
 use constant secretKey => 'c91395a441ec56416536ab1e83a3c82a';
 
+use Data::Dumper;
+
 sub new {
 	print "LastFM module loaded\n";
 	my $self = $_[1];
+	#$self->{gui}->{w}->{menu_tree}->{_PlayBack}->['children']->['_Auth Last FM'] = [
+	#	callback => sub {
+	#		$self->beginAuth();
+	#	}
+	#];
+
+	#print Dumper(
+	#$self->{gui}->{w}->{menu_tree}
+	#);
+
+	#for (keys @{$self->{gui}->{w}->{menu_tree}}) {
+	#	if ($self->{gui}->{w}->{menu_tree}->[$_] eq '_Playback') {
+	#		print Dumper($self->{gui}->{w}->{menu_tree}->[$_ + 1]);
+	#		push @{$self->{gui}->{w}->{menu_tree}->[$_ + 1]->{children}}, 'Auth LastFM';
+	#		push @{$self->{gui}->{w}->{menu_tree}->[$_ + 1]->{children}}, {
+	#				callback => sub {
+	#					$self->beginAuth();
+	#				}
+#
+#			};
+#		}
+#		print "$_\n";
+#	}
+
+	$self->{gui}->add_menu_item('_LastFM', {
+		title => 'Auth LastFM+',
+		payload => {
+			callback => sub {
+				print "Fuck you!\n";
+			}
+		}
+	});
+
 	bless $self;
 	$self->{state} = {
 		authkey => $self->loadKey()

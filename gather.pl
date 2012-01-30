@@ -131,8 +131,8 @@ sub parse {
 	print "Inserting $artist - $album - $title\n";
 
 	# Attempt getting tracknumber from file prefix
-	if ($tracknum == 0 && m/^(\d+)[\.\-]? /) {
-		$tracknum = 1;
+	if (!$tracknum && m/^(\d+)[\.\-]? /) {
+		$tracknum = $1;
 	}
 
 	push @songs, [$artist, $album, $tracknum, $title, $File::Find::name, $time];

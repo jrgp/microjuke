@@ -15,6 +15,27 @@
 # You should have received a copy of the GNU General Public License
 # along with MicroJuke.  If not, see <http://www.gnu.org/licenses/>.
 
+## Misc convenient bullshit
+package MicroJuke::misc;
+
+use warnings;
+use strict;
+
+sub file_contents {
+	my ($file, $default) = @_;
+	$default = $default || '';
+	-e $file || return $default;
+	my $cont = '';
+	open H, '<'.$file || return $default;
+	for (<H>) {
+		chomp;
+		$cont .= "$_\n";
+	}
+	close H;
+	chomp $cont;
+	$cont;
+}
+
 ## Maintain settings and so on
 package MicroJuke::Conf;
 
@@ -75,11 +96,68 @@ use warnings;
 use strict;
 
 use File::Basename;
+use Storable qw(store_fd fd_retrieve);
 
 sub new {
 	my $self = {};
-	$self->{loaded} = ();
 	bless $self;
+
+	$self->{loaded} = ();
+	$self->{enabled} = {};
+
+	$self->generateEnabled();
+
+	$self;
+}
+
+# Fill our list of enabled plugins
+sub generateEnabled {
+	my $self = shift;
+	my $path = MicroJuke::Conf::getVal('dir').'plugins_enabled.dat';
+	return unless -e $path && -r $path;
+	my $enabled = {};
+	eval {
+		open(H, '<'.$path) || return 0;
+		$enabled = fd_retrieve(\*H) || return 0;
+		close H;
+	} || return 0;
+	for (keys %{$enabled}) {
+		$self->{enabled}->{$_} = $enabled->{$_} ? 1 : 0;
+	}
+	1;
+}
+
+
+# Just get available ones whether they're enabled
+sub listAvailable {
+	my $self = shift;
+	my $pkg;
+	my %packages;
+	for (@{MicroJuke::Conf::getVal('pluginPath')}) {
+		for my $path (glob "$_*.pl") {
+			($pkg = basename($path)) =~ s/\.pl$//g;
+			my $descript = MicroJuke::misc::file_contents "$_$pkg.txt";
+			$packages{$pkg} = {
+				path => $path,
+				enabled => undef,
+				description => $descript
+			};
+		}
+	}
+	for (keys %packages) {
+		$packages{$_}->{enabled} = exists $self->{enabled}->{$_} && $self->{enabled}->{$_} ? 1 : 0;
+	}
+	return \%packages;
+}
+
+# Save our list of available ones
+sub saveEnabled {
+	my $self = shift;
+	my $path = MicroJuke::Conf::getVal('dir').'plugins_enabled.dat';
+	open H, '>'.$path || return 0;
+	store_fd ($self->{enabled}, \*H) || return 0;
+	close H;
+	1;
 }
 
 # Find plugin file, load it, start it off by localizing it 
@@ -108,6 +186,14 @@ sub load {
 		push @{$self->{loaded}}, $plugin;
 		return 1;
 	} or warn "Couldn't load plugin $plugin:\n $@\n";
+}
+
+# Load each of our enabled available plugins
+sub loadEnabled {
+	my $self = shift;
+	for (keys %{$self->{enabled}}) {
+		$self->load($_) if $self->{enabled}->{$_};
+	}
 }
 
 # Same as above, but for all we can find. Each package name has a priority
@@ -317,6 +403,8 @@ package MicroJuke::GUI;
 use strict;
 use warnings;
 
+use File::Basename;
+
 use Gtk2 qw(-init);
 use Glib qw(TRUE FALSE);
 use Gtk2::SimpleMenu;
@@ -327,116 +415,22 @@ use Data::Dumper;
 
 sub new {
 	my $self = {};
-	bless $self;
-}
-
-sub seconds2minutes {
-	my $secs = shift;
-	return sprintf('%d:%02d', floor($secs / 60), floor($secs % 60));
-}
-
-sub toolong {
-	my $str = shift;
-	return '' unless defined $str;
-	return length($str) > 30 ? substr ($str, 0, 29).'..' : $str;
-}
-
-sub plActCallBack {
-	my ($self, $widget, $event) = @_;
-	my $p = $event;
-	my ($index) = $p->get_indices;
-	$self->{play}->playSong($index);
-}
-
-sub filterSongs {
-	my ($self, $query) = @_;
-	my @fsongs;
-
-	if ($query eq '') {
-		@fsongs = @{$self->{play}->{all_songs}};
-		$self->{w}->{s_status}->set_text('');
-	}
-	else {
-		$query = quotemeta($query);
-		@fsongs =
-		grep (
-			$_->[0] =~ /$query/i ||
-			$_->[1] =~ /$query/i ||
-			$_->[3] =~ /$query/i 
-		, @{$self->{play}->{all_songs}});
-		my $nf = scalar @fsongs;
-		my $ent = scalar @{$self->{play}->{all_songs}};
-		$self->{w}->{s_status}->set_text($nf == 0 ? 'No matches' : "Showing $nf/$ent songs");
-	}
-
-	$self->{play}->{files} = {};
-	@{$self->{w}->{pl}->{data}} = ();
-
-	# Sort dem bitches
-	@fsongs = sort {
-		$a->[0] cmp $b->[0] || # Artist
-		$a->[1] cmp $b->[1] || # Album
-		$a->[2] <=> $b->[2] # Tracknum
-	} @fsongs;
-	
-	my $i = 0;
-	my $realized = 0;
-	my ($sc, $state) = $self->{play}->{play}->get_state(4);
-	for (@fsongs) {
-		push @{$self->{w}->{pl}->{data}}, [
-			toolong($_->[2]),
-			toolong($_->[3]),
-			toolong($_->[0]),
-			toolong($_->[1]),
-			$_->[5],
-		];
-		$self->{play}->{files}->{$i} = $_->[4];
-
-		# In this new filter, try to set the current playing index to the proper file 
-		if (($state eq 'playing' || $state eq 'paused') && defined $self->{play}->{gstate}->{file} &&
-			$self->{play}->{gstate}->{file} eq $_->[4]) {
-			$self->{play}->{gstate}->{playing_what} = $i;
-			$realized = 1;
-		}
-		$i++;
-	}
-
-	# After filtering, if we haven't found our current song in the new filter, 
-	# make the next song just be the beginning of the current filter
-	if (!$realized && ($state eq 'playing' || $state eq 'paused')) {
-		$self->{play}->{gstate}->{playing_what} = -1;
-	}
-}
-
-sub searchCallBack {
-	my ($self, $widget, $event) = @_;
-	my $query = $widget->get_text();
-	$query  =~ s/^\s+|\s+$//g ;
-	$self->filterSongs($query);
-}
-
-sub init_gui {
-	my $self = shift;
 	$self->{w} = ();
-	$self->{w}->{main} = new Gtk2::Window 'toplevel';
+	bless $self;
 
-	my $icon_path = undef; 
-	for (@{MicroJuke::Conf::getVal('iconPath')}) {
-		if (-e $_.'16x16.png') {
-			$icon_path = $_.'16x16.png';
-			last;
-		}
-	}
-	$self->{w}->{main}->set_default_icon_from_file($icon_path);
-
-
-	$self->{w}->{mv} = Gtk2::VBox->new;
-	$self->{w}->{main}->add($self->{w}->{mv});
-
-	my $menu_tree = [
+	# Create this here so plugins can modify it if need be. Plugins are already
+	# configured by the time init_gui() is called, so it'd be too late after that.
+	$self->{w}->{menu_tree} = [
 		_File => {
 			item_type => '<Branch>',
 			children => [
+				
+				'Plugins' => {
+					callback => sub {
+						$self->init_plugin_window;
+					}
+				},
+
 				'_Parse Library' => {
 					callback => sub{
 						my ($sc, $state) = $self->{play}->{play}->get_state(4);
@@ -500,11 +494,6 @@ sub init_gui {
 						}
 					}
 				},
-				'_Auth Last FM' => {
-					callback => sub {
-						$self->{plugins}->{hooks}->{LastFM}->beginAuth();
-					}
-				}
 			]
 
 		},
@@ -520,7 +509,114 @@ sub init_gui {
 		}
 	];
 
-	$self->{w}->{menu} = Gtk2::SimpleMenu->new(menu_tree => $menu_tree, default_callback => sub {}, user_data => 'user_data');
+	$self;
+}
+
+sub seconds2minutes {
+	my $secs = shift;
+	return sprintf('%d:%02d', floor($secs / 60), floor($secs % 60));
+}
+
+sub toolong {
+	my $str = shift;
+	return '' unless defined $str;
+	return length($str) > 30 ? substr ($str, 0, 29).'..' : $str;
+}
+
+sub plActCallBack {
+	my ($self, $widget, $event) = @_;
+	my $p = $event;
+	my ($index) = $p->get_indices;
+	$self->{play}->playSong($index);
+}
+
+sub filterSongs {
+	my ($self, $query) = @_;
+	my @fsongs;
+
+	$self->{play}->{files} = {};
+	@{$self->{w}->{pl}->{data}} = ();
+
+	if ($query eq '') {
+		@fsongs = @{$self->{play}->{all_songs}};
+		$self->{w}->{s_status}->set_text('');
+	}
+	else {
+		$query = quotemeta($query);
+		@fsongs =
+		grep (
+			$_->[0] =~ /$query/i ||
+			$_->[1] =~ /$query/i ||
+			$_->[3] =~ /$query/i 
+		, @{$self->{play}->{all_songs}});
+		my $nf = scalar @fsongs;
+		my $ent = scalar @{$self->{play}->{all_songs}};
+		$self->{w}->{s_status}->set_text($nf == 0 ? 'No matches' : "Showing $nf/$ent songs");
+		return if $nf == 0;
+	}
+
+	# Sort dem bitches
+	@fsongs = sort {
+		$a->[0] cmp $b->[0] || # Artist
+		$a->[1] cmp $b->[1] || # Album
+		$a->[2] cmp $b->[2] # Tracknum
+	} @fsongs;
+	
+	my $i = 0;
+	my $realized = 0;
+	my ($sc, $state) = $self->{play}->{play}->get_state(4);
+	for (@fsongs) {
+		my $tn = $_->[2] =~ s/^0+//;
+		push @{$self->{w}->{pl}->{data}}, [
+			$_->[2] eq '0' ? '' : $_->[2],
+			toolong($_->[3]),
+			toolong($_->[0]),
+			toolong($_->[1]),
+			$_->[5],
+		];
+		$self->{play}->{files}->{$i} = $_->[4];
+
+		# In this new filter, try to set the current playing index to the proper file 
+		if (($state eq 'playing' || $state eq 'paused') && defined $self->{play}->{gstate}->{file} &&
+			$self->{play}->{gstate}->{file} eq $_->[4]) {
+			$self->{play}->{gstate}->{playing_what} = $i;
+			$realized = 1;
+		}
+		$i++;
+	}
+
+	# After filtering, if we haven't found our current song in the new filter, 
+	# make the next song just be the beginning of the current filter
+	if (!$realized && ($state eq 'playing' || $state eq 'paused')) {
+		$self->{play}->{gstate}->{playing_what} = -1;
+	}
+}
+
+sub searchCallBack {
+	my ($self, $widget, $event) = @_;
+	my $query = $widget->get_text();
+	$query  =~ s/^\s+|\s+$//g ;
+	$self->filterSongs($query);
+}
+
+sub init_gui {
+	my $self = shift;
+	$self->{w}->{main} = new Gtk2::Window 'toplevel';
+
+	my $icon_path = undef; 
+	for (@{MicroJuke::Conf::getVal('iconPath')}) {
+		if (-e $_.'16x16.png') {
+			$icon_path = $_.'16x16.png';
+			last;
+		}
+	}
+	$self->{w}->{main}->set_default_icon_from_file($icon_path);
+
+
+	$self->{w}->{mv} = Gtk2::VBox->new;
+	$self->{w}->{main}->add($self->{w}->{mv});
+
+	$self->{w}->{menu} = Gtk2::SimpleMenu->new(menu_tree => $self->{w}->{menu_tree}, default_callback => sub {}, user_data => 'user_data');
 
 	$self->{w}->{menu}->get_widget('/File')->activate;
 
@@ -656,6 +752,110 @@ sub die {
 	Gtk2->main_quit;
 }
 
+sub init_plugin_window {
+	my $self = shift;
+	$self->{pl_window} = {};
+	$self->{pl_window}->{window} = Gtk2::Dialog->new(
+		'MicroJuke Plugin Preferences',
+		$self->{w}->{main},
+		[qw/modal destroy-with-parent/]
+	);
+
+	$self->{pl_window}->{ml} = Gtk2::Label->new('Available Plugins');
+
+	$self->{pl_window}->{window}->get_content_area()->pack_start($self->{pl_window}->{ml}, 0, 0, 0);
+
+	# Plugin list
+	$self->{pl_window}->{plist} = Gtk2::SimpleList->new(
+		'Enabled' => 'bool',
+		'Plugin Name' => 'text',
+		'Description' => 'text'
+	);
+	$self->{pl_window}->{plist}->columns_autosize();
+	map {$_->set_sizing ('autosize')} $self->{pl_window}->{plist}->get_columns;
+	map {$_->set_resizable (TRUE)} $self->{pl_window}->{plist}->get_columns;
+	map {$_->set_expand (FALSE)} $self->{pl_window}->{plist}->get_columns;
+
+	# Scrolly fucker that holds plugin list
+	$self->{pl_window}->{plist_c} = Gtk2::ScrolledWindow->new (undef, undef);
+	$self->{pl_window}->{plist_c}->set_policy ('automatic', 'always');
+	$self->{pl_window}->{plist_c}->set_size_request (200,100);
+	$self->{pl_window}->{plist_c}->add($self->{pl_window}->{plist});
+
+	# Populate it, like a fucking boss 
+	my %available = %{$self->{plugins}->listAvailable};
+	for (keys %available) {
+		push @{$self->{pl_window}->{plist}->{data}}, [
+			$available{$_}->{enabled},
+			$_,
+			$available{$_}->{description}
+		];
+	}
+
+	# Little button row thing at the bottom for configuring a highlighted plugin
+	$self->{pl_window}->{hbox} = Gtk2::HBox->new;
+	$self->{pl_window}->{cbtn} = Gtk2::Button->new('Configure');
+	$self->{pl_window}->{hbox}->pack_start($self->{pl_window}->{cbtn}, 0, 0, 0);
+	$self->{pl_window}->{cbtn}->set_sensitive(0);
+
+	$self->{pl_window}->{window}->get_content_area()->add($self->{pl_window}->{plist_c});
+	$self->{pl_window}->{window}->get_content_area()->pack_end($self->{pl_window}->{hbox}, 0, 0, 0);
+
+	# Events for the list dude
+	$self->{pl_window}->{plist}->signal_connect('cursor-changed', sub {
+		print "picked one!\n";
+	});
+	
+	$self->{pl_window}->{window}->show_all;
+
+	my $resp = $self->{pl_window}->{window}->run;
+	$self->kill_plugin_window($resp);
+}
+
+sub kill_plugin_window {
+	my ($self, $resp) = @_;
+
+	# Save plugin enabler choices.
+	for (@{$self->{pl_window}->{plist}->{data}}) {
+		$self->{plugins}->{enabled}->{$_->[1]} = $_->[0];
+	}
+	$self->{plugins}->saveEnabled();
+
+	$self->{pl_window}->{window}->destroy;
+	
+	# Fuck memory leaks
+	delete $self->{pl_window};
+}
+
+# Tack an item onto our main toolbar menu. Accepts the existing menu name and the item to add. 
+sub add_menu_item {
+	my ($self, $menu_name, $item) = @_;
+	my $added = 0;
+	for (keys @{$self->{w}->{menu_tree}}) {
+		if ($self->{w}->{menu_tree}->[$_] eq $menu_name && ref($self->{w}->{menu_tree}->[$_ + 1]) eq 'HASH') {
+			push @{$self->{w}->{menu_tree}->[$_ + 1]->{children}}, $item->{title};
+			push @{$self->{w}->{menu_tree}->[$_ + 1]->{children}}, $item->{payload};
+			$added = 1;
+		}
+	}
+
+	# If we didn't stick our value at the end of an existing menu item, 
+	# create a new one. Subsequent calls referencing the same menu item
+	# will be processed by above.
+	unless ($added) {
+		push @{$self->{w}->{menu_tree}}, $menu_name;	
+		push @{$self->{w}->{menu_tree}}, {
+			item_type => '<Branch>',
+			'children' => [
+				$item->{title},
+				$item->{payload}
+			]
+		};	
+		print Dumper($self->{w}->{menu_tree});
+		return;
+	}
+}
+
 1;
 
 ## Start us up
@@ -682,7 +882,7 @@ $gui->{play} = $play;
 $plugins->{gui} = $gui;
 $plugins->{play} = $play;
 
-$plugins->loadAll();
+$plugins->loadEnabled();
 
 # This will block until gtk dies, so call it last
 $gui->init_gui();

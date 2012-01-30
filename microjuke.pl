@@ -851,8 +851,6 @@ sub add_menu_item {
 				$item->{payload}
 			]
 		};	
-		print Dumper($self->{w}->{menu_tree});
-		return;
 	}
 }
 

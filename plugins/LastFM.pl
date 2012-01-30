@@ -34,35 +34,12 @@ use Data::Dumper;
 sub new {
 	print "LastFM module loaded\n";
 	my $self = $_[1];
-	#$self->{gui}->{w}->{menu_tree}->{_PlayBack}->['children']->['_Auth Last FM'] = [
-	#	callback => sub {
-	#		$self->beginAuth();
-	#	}
-	#];
-
-	#print Dumper(
-	#$self->{gui}->{w}->{menu_tree}
-	#);
-
-	#for (keys @{$self->{gui}->{w}->{menu_tree}}) {
-	#	if ($self->{gui}->{w}->{menu_tree}->[$_] eq '_Playback') {
-	#		print Dumper($self->{gui}->{w}->{menu_tree}->[$_ + 1]);
-	#		push @{$self->{gui}->{w}->{menu_tree}->[$_ + 1]->{children}}, 'Auth LastFM';
-	#		push @{$self->{gui}->{w}->{menu_tree}->[$_ + 1]->{children}}, {
-	#				callback => sub {
-	#					$self->beginAuth();
-	#				}
-#
-#			};
-#		}
-#		print "$_\n";
-#	}
 
 	$self->{gui}->add_menu_item('_LastFM', {
-		title => 'Auth LastFM+',
+		title => 'Authenticate as a different user',
 		payload => {
 			callback => sub {
-				print "Fuck you!\n";
+				$self->beginAuth();
 			}
 		}
 	});
@@ -255,14 +232,28 @@ sub getWebServiceSession {
 	my $ref = XMLin $res->content;
 	if ($ref->{status} ne 'ok') {
 		if ($ref->{error}->{code} == 14) {
-			print "Gonna prompt the user to auth in their browser..\n";
 			$self->passTheUser;
-			Glib::Timeout->add(10000, sub {
-				my $self = shift;
-				print "Gonna try again...";
+			my $dialog = Gtk2::MessageDialog->new (
+				$self->{gui}->{w}->{main},
+				'destroy-with-parent',
+				'question', 
+				'ok-cancel', 
+				"I am sending you to Last.FM's auth page. Click OK when finished, or Cancel if you no longer care."
+			);
+			my $resp = $dialog->run;
+
+			# They clicked okay, hopefully after they clicked "Allow Access" in last.fm. Run this function again
+			# and if they really did click "Allow Access" we'll be peachy clean
+			if ($resp eq 'ok' ) {
+				$dialog->destroy;
 				$self->getWebServiceSession();
-				return 0;
-			}, $self);
+			}
+
+			# User doesn't give a fuck about last.fm, apparently. Kill window and don't attempt to check
+			# if we authed again.
+			else {
+				$dialog->destroy;
+			}
 			return;
 		}
 		else {

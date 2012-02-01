@@ -12,21 +12,21 @@ use IPC::Open2;
 my ($ogg_method, $flac_method);
 
 # These don't always exist
-eval "
-require Ogg::Vorbis::Header;
-require Audio::FLAC::Header;
-";
-
-# If that eval fails, opt for using equivalent, but possibly slower, means
-if ($@) {
-	$ogg_method = -x '/usr/bin/vorbiscomment' ? 'vbc' : '';
-	$flac_method = '';
-}
-else {
-	use Ogg::Vorbis::Header;
-	use Audio::FLAC::Header;
-	$ogg_method = 'module';
-	$flac_method = 'module';
+BEGIN {
+	eval {
+		require Ogg::Vorbis::Header;
+		require Audio::FLAC::Header;
+		Ogg::Vorbis::Header->import();
+		Audio::FLAC::Header->import();
+	};
+	if ($@) {
+		$ogg_method = -x '/usr/bin/vorbiscomment' ? 'vorbiscomment' : '';
+		$flac_method = -x '/usr/bin/metaflac' ? 'metaflac' : '';
+	}
+	else {
+		$ogg_method = 'module';
+		$flac_method = 'module';
+	}
 }
 
 BEGIN {$| = 1;}
@@ -79,7 +79,7 @@ sub parse {
 	}
 	elsif ($_ =~ m/\.ogg$/) {
 		my $oggi = ();
-		if ($ogg_method eq 'vbc') {
+		if ($ogg_method eq 'vorbiscomment') {
 			my $pid = open2(my $std, undef,  '/usr/bin/vorbiscomment', $File::Find::name);
 			my $parsed = '';
 			while (<$std>) {
@@ -131,7 +131,32 @@ sub parse {
 	}
 	elsif ($_ =~ m/\.flac$/) {
 		my $flaci = ();
-		if ($flac_method eq 'module') {
+		if ($flac_method eq 'metaflac') {
+			my $pid = open2(my $std, undef,  '/usr/bin/metaflac', '--list', '--block-type', 'VORBIS_COMMENT', $File::Find::name);
+			my $parsed = '';
+			while (<$std>) {
+				$parsed .= $_;
+			}
+			waitpid $pid, 0;
+			my %fields = (
+				TITLE => 'title',
+				ARTIST => 'artist',
+				TRACKNUMBER => 'tracknum',
+				ALBUM => 'album',
+			);
+			for (split /\n/, $parsed) {
+				chomp;
+				if (m/^\s*comment\[\d+\]:\s*([^=]+)=([^\$]+)$/) {
+					my $keyu = uc $1;
+					if (defined $fields{$keyu}) {
+	#					print "MF $1 - $2\n";
+						$flaci->{$fields{$keyu}} = $2;
+					}
+				}
+			}
+
+		}
+		elsif ($flac_method eq 'module') {
 			my $flac = Audio::FLAC::Header->new($File::Find::name);
 			unless ($flac) {
 				print "Fucked up: ".$File::Find::name."\n";
@@ -166,7 +191,7 @@ sub parse {
 		return;
 	}
 
-	print "Inserting $artist - $album - $title\n";
+	#print "Inserting $artist - $album - $title\n";
 
 	# Attempt getting tracknumber from file prefix
 	if (!$tracknum && m/^(\d+)[\.\-]? /) {

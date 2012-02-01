@@ -1,0 +1,1 @@
+Fetch album covers and display them.

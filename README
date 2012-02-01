@@ -1,6 +1,24 @@
 MicroJuke - Minimal audio player for Linux
 By: Joe Gillotti <joe@u13.net> released under the GPL
 
+NOTE: This is *extremely* beta. I've been listening to it a lot lately, but it 
+really lacks polish in its current state. (-feb 1, 2012)
+
+----- Start Here ----- 
+1) Install dependencies (as below)
+2) Run `perl gather.pl PathToMusicFolder`
+3) Run `perl microjuke.pl`
+
+At this beta release, the song parser is not yet incorporated
+into the main gui layout.
+
+For last.fm:
+1) go to File -> Plugins. Tick the Last.FM box
+2) restart microjuke
+3) go to Last.FM > Authenticate as different user
+4) It will open your web browser to last.fm's app auth page
+5) Log in / click allow access. 
+
 ----- Features -----
  - Automatically recursively parse and construct your song library
  - Quickly find and play the thousands of tracks in your library

@@ -45,6 +45,8 @@ use strict;
 use File::Basename;
 use Cwd;
 
+use constant VERSION => '0.1 Beta';
+
 my $home = Glib::get_home_dir() || $ENV{HOME};
 my $dir = $home.'/.microjuke/';
 
@@ -338,7 +340,7 @@ sub stopPlaying {
 	Glib::Source->remove ($self->{gui}->{w}->{periodic_time_dec}) if $self->{gui}->{w}->{periodic_time_dec};
 	$self->{gui}->{w}->{np_timer}->set_text('');
 	$self->{gui}->{w}->{npl}->set_text('Nothing playing');
-	$self->{gui}->{w}->{main}->set_title('MicroJuke');
+	$self->{gui}->{w}->{main}->set_title('MicroJuke '.MicroJuke::Conf::VERSION);
 }
 
 sub playSong {
@@ -391,7 +393,7 @@ sub playSong {
 		$self->getProgress();
 	}, $self);
 
-	$self->{gui}->{w}->{main}->set_title("MicroJuke - [$artist] $title");
+	$self->{gui}->{w}->{main}->set_title("MicroJuke ".MicroJuke::Conf::VERSION." - [$artist] $title");
 
 
 	# Go through plugins supporting some action or whatever here
@@ -763,7 +765,7 @@ sub init_gui {
 
 	# Finalize
 	$self->{w}->{main}->show_all;
-	$self->{w}->{main}->set_title('MicroJuke');
+	$self->{w}->{main}->set_title('MicroJuke '.MicroJuke::Conf::VERSION);
 
 	# Make pause button initially unhidden
 	$self->{w}->{plb_pause}->hide;

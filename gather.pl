@@ -191,7 +191,7 @@ sub parse {
 		return;
 	}
 
-	#print "Inserting $artist - $album - $title\n";
+	print "Inserting $artist - $album - $title\n";
 
 	# Attempt getting tracknumber from file prefix
 	if (!$tracknum && m/^(\d+)[\.\-]? /) {

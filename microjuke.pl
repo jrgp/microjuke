@@ -566,27 +566,21 @@ sub filterSongs {
 		return if $nf == 0;
 	}
 
-	# Force the intcolumn field to really be an int, otherwise <=> whines
-	# if it encounters a "" instead of a number, which really shouldn't happen anyway
-	sub unfuck {
-		my $v = shift;
-		return $v =~ m/(\d+)/ ? $1 : 0;
-	}
-
 	# Sort dem bitches
 	@fsongs = sort {
 		$a->[0] cmp $b->[0] || # Artist
 		$a->[1] cmp $b->[1] || # Album
-		unfuck($a->[2]) <=> unfuck($b->[2]) # Tracknum
+		$a->[2] <=> $b->[2] # Tracknum
 	} @fsongs;
 	
 	my $i = 0;
 	my $realized = 0;
 	my ($sc, $state) = $self->{play}->{play}->get_state(4);
 	for (@fsongs) {
-		my $tn = $_->[2] =~ s/^0+//;
+		my $tn = $_->[2];
+		$tn =~ s/^0+//; 
 		push @{$self->{w}->{pl}->{data}}, [
-			$_->[2] eq '0' ? '' : $_->[2],
+			$tn eq '0' ? '' : $tn,
 			toolong($_->[3]),
 			toolong($_->[0]),
 			toolong($_->[1]),

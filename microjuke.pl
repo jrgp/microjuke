@@ -414,13 +414,14 @@ use warnings;
 
 use File::Basename;
 
-use Gtk2 qw(-init);
+use Gtk2 qw(-init -threads-init);
 use Glib qw(TRUE FALSE);
 use Gtk2::SimpleMenu;
 use Gtk2::SimpleList;
 use Data::Dumper;
 use POSIX qw(floor);
 use Data::Dumper;
+Glib::Object->set_threadsafe (TRUE); 
 
 sub new {
 	my $self = {};

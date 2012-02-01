@@ -26,8 +26,21 @@ use URI::Escape;
 use File::Basename;
 use Data::Dumper;
 
+
+use threads;
+use Thread::Queue; 
+
 use constant apiKey => 'e40c04743632809d8176349ed86d2ade';
 use constant secretKey => 'c91395a441ec56416536ab1e83a3c82a';
+
+my $q = Thread::Queue->new;
+
+threads->create(sub {
+	while (my $shit = $q->dequeue()) {
+		my ($album, $artist) = @{$shit};
+		saveArtForAlbum($artist, $album);
+	}
+})->detach;
 
 sub new {
 	print "Album Art module loaded\n";
@@ -48,16 +61,8 @@ sub new {
 
 sub onSongStart {
 	my $self = shift;
-
-	Glib::Idle->add(sub {
-			my $self = shift;
-			my ($artist, $album) = (
-				$self->{play}->{gstate}->{artist}, $self->{play}->{gstate}->{album});
-			
-			$self->saveArtForAlbum($artist, $album);
-			0;
-		}, $self
-	);
+	
+	$q->enqueue([$self->{play}->{gstate}->{album}, $self->{play}->{gstate}->{artist}]);
 }
 
 ########################
@@ -80,7 +85,8 @@ sub genLocalPath {
 }
 
 sub saveArtForAlbum {
-	my ($self, $artist, $album) = @_;
+	my ($artist, $album) = @_;
+	print "Trying $artist $album\n";
 	my $local_path = genLocalPath($artist, $album);
 	my $local_dir = dirname($local_path);
 	return if -e $local_path;
@@ -131,6 +137,9 @@ sub saveArtForAlbum {
 	open H, ">$local_path";
 	print H $res->content;
 	close H;
+	
+	print "Done with $artist - $album\n";
+
 	1;
 }
 

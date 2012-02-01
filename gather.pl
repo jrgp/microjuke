@@ -3,12 +3,31 @@
 use strict;
 use warnings;
 use MP3::Info;
-use Ogg::Vorbis::Header;
-use Audio::FLAC::Header;
 use Data::Dumper;
 use File::Find;
 use Storable qw(store_fd fd_retrieve);
 use POSIX qw(floor);
+use IPC::Open2;
+
+my ($ogg_method, $flac_method);
+
+# These don't always exist
+eval "
+require Ogg::Vorbis::Header;
+require Audio::FLAC::Header;
+";
+
+# If that eval fails, opt for using equivalent, but possibly slower, means
+if ($@) {
+	$ogg_method = -x '/usr/bin/vorbiscomment' ? 'vbc' : '';
+	$flac_method = '';
+}
+else {
+	use Ogg::Vorbis::Header;
+	use Audio::FLAC::Header;
+	$ogg_method = 'module';
+	$flac_method = 'module';
+}
 
 BEGIN {$| = 1;}
 
@@ -57,32 +76,51 @@ sub parse {
 			$mp3->artist, $mp3->album, $mp3->title, $mp3->time,
 			defined $mp3->tracknum && $mp3->tracknum =~ /^(\d+)$/ ? $1 : 0
 		);
-	#	print "mp3 - $artist, $album, $title\n";
 	}
 	elsif ($_ =~ m/\.ogg$/) {
-		my $ogg = Ogg::Vorbis::Header->new($File::Find::name);
-		unless ($ogg) {
-			print "Fucked up: ".$File::Find::name."\n";
-			return;
-		}
 		my $oggi = ();
-		$oggi->{time} = seconds2minutes(floor($ogg->info->{length}));
-		for my $key ($ogg->comment_tags) {
-			if ($key eq 'ARTIST') {
-				($oggi->{artist}) = ($ogg->comment($key));
+		if ($ogg_method eq 'vbc') {
+			my $pid = open2(my $std, undef,  '/usr/bin/vorbiscomment', $File::Find::name);
+			my $parsed = '';
+			while (<$std>) {
+				$parsed .= $_;
 			}
-			elsif ($key eq 'ALBUM') {
-				($oggi->{album}) = ($ogg->comment($key));
-			}
-			elsif ($key eq 'TITLE') {
-				($oggi->{title}) = ($ogg->comment($key));
-			}
-			elsif ($key eq 'TRACKNUMBER') {
-				($oggi->{tracknum}) = ($ogg->comment($key));
+			waitpid $pid, 0;
+			my %fields = (
+				TITLE => 'title',
+				ARTIST => 'artist',
+				TRACKNUMBER => 'tracknum',
+				ALBUM => 'album',
+			);
+			for (split /\n/, $parsed) {
+				chomp;
+				if (m/^([A-Z]+)=([^\$]+)$/i && defined $fields{uc($1)}) {
+					$oggi->{$fields{uc($1)}} = $2;
+				}
 			}
 		}
-		for (keys %{$oggi}) {
-			$oggi->{$_} =~ s/^\s+|\s+$//g ;
+		elsif ($ogg_method eq 'module') {
+			my $ogg = Ogg::Vorbis::Header->new($File::Find::name);
+			unless ($ogg) {
+				print "Fucked up: ".$File::Find::name."\n";
+				return;
+			}
+			$oggi->{time} = seconds2minutes(floor($ogg->info->{length}));
+			my %fields = (
+				TITLE => 'title',
+				ARTIST => 'artist',
+				TRACKNUMBER => 'tracknum',
+				ALBUM => 'album',
+			);
+			for my $key ($ogg->comment_tags) {
+				my $keyu = uc $key;
+				if (defined $fields{$keyu}) {
+					($oggi->{$fields{$keyu}}) = ($ogg->comment($key));
+				}
+			}
+			for (keys %{$oggi}) {
+				$oggi->{$_} =~ s/^\s+|\s+$//g ;
+			}
 		}
 		return unless defined $oggi->{artist} && defined $oggi->{album} && defined $oggi->{title};
 		return unless $oggi->{artist} ne '' && $oggi->{album} ne '' && $oggi->{title} ne '';
@@ -90,30 +128,31 @@ sub parse {
 			$oggi->{artist}, $oggi->{album}, $oggi->{title}, $oggi->{time},
 			defined $oggi->{tracknum} && $oggi->{tracknum} =~ /^(\d+)$/ ? $1 : 0
 		);
-	#	print "ogg - $artist, $album, $title\n";
 	}
 	elsif ($_ =~ m/\.flac$/) {
-		my $flac = Audio::FLAC::Header->new($File::Find::name);
-		unless ($flac) {
-			print "Fucked up: ".$File::Find::name."\n";
-			return;
-		}
-		my $info = $flac->tags();
 		my $flaci = ();
-		$flaci->{time} = seconds2minutes(($flac->{trackLengthMinutes}*60) + $flac->{trackLengthSeconds});
-		for my $key (qw(ARTIST ALBUM TITLE TRACKNUMBER)) {
-			next unless defined $info->{$key};
-			if ($key eq 'ARTIST') {
-				$flaci->{artist} = $info->{$key};
+		if ($flac_method eq 'module') {
+			my $flac = Audio::FLAC::Header->new($File::Find::name);
+			unless ($flac) {
+				print "Fucked up: ".$File::Find::name."\n";
+				return;
 			}
-			elsif ($key eq 'ALBUM') {
-				$flaci->{album} = $info->{$key};
-			}
-			elsif ($key eq 'TITLE') {
-				$flaci->{title} = $info->{$key};
-			}
-			elsif ($key eq 'TRACKNUMBER') {
-				$flaci->{tracknum} = $info->{$key};
+			my $info = $flac->tags();
+			$flaci->{time} = seconds2minutes(($flac->{trackLengthMinutes}*60) + $flac->{trackLengthSeconds});
+			for my $key (qw(ARTIST ALBUM TITLE TRACKNUMBER)) {
+				next unless defined $info->{$key};
+				if ($key eq 'ARTIST') {
+					$flaci->{artist} = $info->{$key};
+				}
+				elsif ($key eq 'ALBUM') {
+					$flaci->{album} = $info->{$key};
+				}
+				elsif ($key eq 'TITLE') {
+					$flaci->{title} = $info->{$key};
+				}
+				elsif ($key eq 'TRACKNUMBER') {
+					$flaci->{tracknum} = $info->{$key};
+				}
 			}
 		}
 		return unless defined $flaci->{artist} && defined $flaci->{album} && defined $flaci->{title};
@@ -122,7 +161,6 @@ sub parse {
 			$flaci->{artist}, $flaci->{album}, $flaci->{title}, $flaci->{time},
 			defined $flaci->{tracknum} && $flaci->{tracknum} =~ /^(\d+)$/ ? $1 : 0
 		);
-	#	print "flac - $artist, $album, $title\n";
 	}
 	else {
 		return;

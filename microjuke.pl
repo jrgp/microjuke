@@ -555,11 +555,18 @@ sub filterSongs {
 		return if $nf == 0;
 	}
 
+	# Force the intcolumn field to really be an int, otherwise <=> whines
+	# if it encounters a "" instead of a number, which really shouldn't happen anyway
+	sub unfuck {
+		my $v = shift;
+		return $v =~ m/(\d+)/ ? $1 : 0;
+	}
+
 	# Sort dem bitches
 	@fsongs = sort {
 		$a->[0] cmp $b->[0] || # Artist
 		$a->[1] cmp $b->[1] || # Album
-		$a->[2] cmp $b->[2] # Tracknum
+		unfuck($a->[2]) <=> unfuck($b->[2]) # Tracknum
 	} @fsongs;
 	
 	my $i = 0;

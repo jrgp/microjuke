@@ -329,6 +329,9 @@ sub stopPlaying {
       	$self->{gstate}->{duration} = undef;
 	$self->{gstate}->{file} = undef;
 
+	$self->{gui}->{w}->{plb_pause}->hide;
+	$self->{gui}->{w}->{plb_play}->show;
+
 	$self->{gui}->{w}->{slider_a}->set_value(0.0);
 
 	$self->{play}->set_state('null');
@@ -353,6 +356,10 @@ sub playSong {
       	$self->{gstate}->{playing} = 1;
 
 	$self->{gui}->{w}->{slider_a}->set_value(0.0);
+	$self->{gui}->{w}->{plb_pause}->show;
+	$self->{gui}->{w}->{plb_play}->hide;
+
+	$self->{gui}->jumpToSong();
 
 	$self->{play}->set_state('null');
 
@@ -486,12 +493,7 @@ sub new {
 				},
 				'_Jump to current song' => {
 					callback => sub {
-						if ($self->{play}->{gstate}->{playing_what} > -1) {
-							my $path = Gtk2::TreePath->new_from_indices($self->{play}->{gstate}->{playing_what});
-							$self->{w}->{pl}->scroll_to_cell($path);
-							$self->{w}->{pl}->set_cursor($path);
-							
-						}
+						$self->jumpToSong();
 					}
 				},
 			]
@@ -510,6 +512,15 @@ sub new {
 	];
 
 	$self;
+}
+
+sub jumpToSong {
+	my $self = shift;
+	if ($self->{play}->{gstate}->{playing_what} > -1) {
+		my $path = Gtk2::TreePath->new_from_indices($self->{play}->{gstate}->{playing_what});
+		$self->{w}->{pl}->scroll_to_cell($path);
+		$self->{w}->{pl}->set_cursor($path);
+	}
 }
 
 sub seconds2minutes {
@@ -662,37 +673,71 @@ sub init_gui {
 	$self->{w}->{np_timer} = Gtk2::Label->new();
 	$self->{w}->{np}->pack_end($self->{w}->{np_timer}, 0, 0, 1);
 
-	# Search
-	$self->{w}->{search} = Gtk2::HBox->new;
-	$self->{w}->{mv}->pack_start($self->{w}->{search}, 0, 0, 0);
-
-	$self->{w}->{s_label} = Gtk2::Label->new('Filter: ');
-	$self->{w}->{search}->pack_start($self->{w}->{s_label}, 0, 0, 1);
-
-	$self->{w}->{s_entry} = Gtk2::Entry->new();
-	$self->{w}->{search}->pack_start($self->{w}->{s_entry}, 0, 0, 0);
-
-	$self->{w}->{s_status} = Gtk2::Label->new();
-	$self->{w}->{search}->pack_start($self->{w}->{s_status}, 0, 0, 1);
-
-	$self->{w}->{s_entry}->signal_connect('key-release-event', sub {
-		my ($widget, $event, $self) = @_;
-		$self->searchCallBack($widget, $event);
-		return 0;
-	}, $self);
-
-	# Slider
+	# Playback
+	$self->{w}->{playback} = Gtk2::HBox->new;
 	$self->{w}->{slider_a} = Gtk2::Adjustment->new(0.0, 0, 101.0, 0.1, 1.0, 1.0);
 	$self->{w}->{slider} = Gtk2::HScale->new( $self->{w}->{slider_a});
 	$self->{w}->{slider}->set_size_request(200, -1);
 	$self->{w}->{slider}->set_draw_value(0);
-	$self->{w}->{search}->pack_end($self->{w}->{slider}, 0, 0, 0);
-
+	$self->{w}->{mv}->pack_start($self->{w}->{playback}, 0, 0, 0);
 	$self->{w}->{slider_a}->signal_connect('value-changed', sub {
 		my ($widget, $self) = @_;
 	#	print Dumper($widget->get_value);
 		return 0;
 	}, $self);
+
+	# Button bar
+	$self->{w}->{playback_btns} = Gtk2::HBox->new;
+	$self->{w}->{plb_play} = Gtk2::Button->new_from_stock('gtk-media-play');
+	$self->{w}->{plb_pause} = Gtk2::Button->new_from_stock('gtk-media-pause');
+	$self->{w}->{plb_previous} = Gtk2::Button->new_from_stock('gtk-media-previous');
+	$self->{w}->{plb_next} = Gtk2::Button->new_from_stock('gtk-media-next');
+	for (qw(plb_previous plb_play plb_pause plb_next)) {
+		$self->{w}->{playback_btns}->add($self->{w}->{$_}) ; 
+		$self->{w}->{$_}->set_focus_on_click(0);
+	}
+	$self->{w}->{playback}->pack_start($self->{w}->{playback_btns}, 0, 0, 0);
+
+	sub playPause {
+		my $self = shift;
+		return unless defined $self->{play}->{play};
+		my ($sc, $state) = $self->{play}->{play}->get_state(4);
+		if ($state eq 'paused') {
+			$self->{play}->{play}->set_state('playing');
+			$self->{w}->{plb_pause}->show;
+			$self->{w}->{plb_play}->hide;
+		} 
+		elsif ($state eq 'playing') {
+			$self->{play}->{play}->set_state('paused');
+			$self->{w}->{plb_pause}->hide;
+			$self->{w}->{plb_play}->show;
+		}
+		elsif ($state eq 'null' && $self->{play}->{gstate}->{playing_what} == -1) {
+			$self->{play}->playSong(0);
+			$self->{w}->{plb_pause}->show;
+			$self->{w}->{plb_play}->hide;
+		}
+	}
+
+	$self->{w}->{plb_play}->signal_connect('clicked', sub {
+		playPause($self);
+	});
+
+	$self->{w}->{plb_pause}->signal_connect('clicked', sub {
+		playPause($self);
+	});
+
+	$self->{w}->{plb_next}->signal_connect('clicked', sub {
+		 $self->{play}->playSong($self->{play}->{gstate}->{playing_what} + 1);
+	});
+
+	$self->{w}->{plb_previous}->signal_connect('clicked', sub {
+		 $self->{play}->playSong($self->{play}->{gstate}->{playing_what} - 1);
+	});
+
+	# Add slider
+	$self->{w}->{playback}->pack_end($self->{w}->{slider}, 0, 0, 0);
+
 
 	# Add player list
 	$self->{w}->{plc}->add($self->{w}->{pl});
@@ -702,11 +747,32 @@ sub init_gui {
 	$self->{w}->{sb} = Gtk2::Statusbar->new();
 	$self->{w}->{sbID} = $self->{w}->{sb}->get_context_id('se');
 	$self->{w}->{sb}->push($self->{w}->{sbID}, '');
-	$self->{w}->{mv}->pack_end($self->{w}->{sb}, 0, 0, 0);
+
+	# Search
+	$self->{w}->{search} = Gtk2::HBox->new;
+	$self->{w}->{s_label} = Gtk2::Label->new('Filter: ');
+	$self->{w}->{search}->pack_start($self->{w}->{s_label}, 0, 0, 1);
+	$self->{w}->{s_entry} = Gtk2::Entry->new();
+	$self->{w}->{search}->pack_start($self->{w}->{s_entry}, 0, 0, 0);
+	$self->{w}->{s_status} = Gtk2::Label->new();
+	$self->{w}->{search}->pack_start($self->{w}->{s_status}, 0, 0, 1);
+	$self->{w}->{s_entry}->signal_connect('key-release-event', sub {
+		my ($widget, $event, $self) = @_;
+		$self->searchCallBack($widget, $event);
+		return 0;
+	}, $self);
+
+	$self->{w}->{end_vbox} = Gtk2::VBox->new;
+	$self->{w}->{end_vbox}->add($self->{w}->{search});
+	$self->{w}->{end_vbox}->pack_end($self->{w}->{sb}, 0, 0, 0);
+	$self->{w}->{mv}->pack_end($self->{w}->{end_vbox}, 0, 0, 0);
 
 	# Finalize
 	$self->{w}->{main}->show_all;
 	$self->{w}->{main}->set_title('MicroJuke');
+
+	# Make pause button initially unhidden
+	$self->{w}->{plb_pause}->hide;
 
 	# Load intiial song list
 	Glib::Idle->add(

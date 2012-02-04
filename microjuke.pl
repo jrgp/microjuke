@@ -45,7 +45,7 @@ use strict;
 use File::Basename;
 use Cwd;
 
-use constant VERSION => '0.1 Beta';
+use constant VERSION => '(SVN)';
 
 my $home = Glib::get_home_dir() || $ENV{HOME};
 my $dir = $home.'/.microjuke/';

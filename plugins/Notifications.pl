@@ -54,11 +54,16 @@ sub new {
 sub onSongStart {
 	my $self = shift;
 	return unless $have_notify;
-	my $notif = Gtk2::Notify->new(
-		"Now playing",
-		$self->{play}->{gstate}->{title}." by ".$self->{play}->{gstate}->{artist}
-	);
-	$notif->show;
+
+	eval {
+		my $notif = Gtk2::Notify->new(
+			"Now playing",
+			$self->{play}->{gstate}->{title}." by ".$self->{play}->{gstate}->{artist}
+		);
+		$notif->show;
+	};
+
+	warn "Couldn't prop notif: $!\n" if $@;
 }
 
 1;

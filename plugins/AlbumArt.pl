@@ -61,6 +61,10 @@ sub new {
 
 sub onSongStart {
 	my $self = shift;
+
+	my $p = genLocalPath ($self->{play}->{gstate}->{artist}, $self->{play}->{gstate}->{album});
+
+	return if -e $p;
 	
 	$q->enqueue([$self->{play}->{gstate}->{album}, $self->{play}->{gstate}->{artist}]);
 }
@@ -80,13 +84,14 @@ sub genLocalPath {
 	$album =~ s/\.+/_/g;
 	$album =~ s/\/+/_/g;
 	$album =~ s/\\+/_/g;
-	my $path = MicroJuke::Conf::getVal('dir').'covers/'.$artist.'/'.$album.'.jpg';
+
+	# Extensionless
+	my $path = MicroJuke::Conf::getVal('dir').'covers/'.$artist.'/'.$album;
 	$path;
 }
 
 sub saveArtForAlbum {
 	my ($artist, $album) = @_;
-	print "Trying $artist $album\n";
 	my $local_path = genLocalPath($artist, $album);
 	my $local_dir = dirname($local_path);
 	return if -e $local_path;
@@ -111,7 +116,7 @@ sub saveArtForAlbum {
 	my $req = HTTP::Request->new(GET => 'http://ws.audioscrobbler.com/2.0/?'.join('&', @fields));
 	my $res = $ua->request($req);
 	unless ($res->is_success) {
-		print "Couldn't get album info from Last.FM:". $res->status_line."\n";
+		warn "Couldn't get album info from Last.FM:". $res->status_line."\n";
 		return 0;
 	}
 	my $ref = XMLin $res->content;
@@ -129,17 +134,13 @@ sub saveArtForAlbum {
 	return unless $url;
 	my $ireq = HTTP::Request->new(GET => $url);
 	my $ires = $ua->request($ireq);
-	unless ($res->is_success) {
-		print "Couldn't get album art from lastfm:". $ires->status_line."\n";
+	unless ($ires->is_success) {
+		warn "Couldn't get album art from lastfm:". $ires->status_line."\n";
 		return 0;
 	}
-	print "$local_path\n";
 	open H, ">$local_path";
-	print H $res->content;
+	print H $ires->content;
 	close H;
-	
-	print "Done with $artist - $album\n";
-
 	1;
 }
 

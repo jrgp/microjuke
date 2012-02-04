@@ -58,8 +58,7 @@ my %settings = (
 	],
 	iconPath => [
 		$home.'/.microjuke/icons/',
-		getcwd().'/icons/',
-		'/usr/share/microjuke/icons/'
+		getcwd().'/icons/'
 	],
 	dir => $dir
 );
@@ -79,7 +78,7 @@ sub getVal {
 sub findInPaths {
 	my ($paths, $file) = @_;
 	my $path = undef;
-	for (<@{$paths}>) {
+	for (@{$paths}) {
 		$_ .= '/' unless m/\/$/;
 		if ( -e $_.$file) {
 			$path = $_.$file;
@@ -620,12 +619,17 @@ sub init_gui {
 
 	my $icon_path = undef; 
 	for (@{MicroJuke::Conf::getVal('iconPath')}) {
-		if (-e $_.'16x16.png') {
-			$icon_path = $_.'16x16.png';
+		if (-e $_.'64x64.png') {
+			$icon_path = $_.'64x64.png';
 			last;
 		}
 	}
-	$self->{w}->{main}->set_default_icon_from_file($icon_path);
+
+	if (!$icon_path && -e '/usr/share/icons/hicolor/16x16/apps/microjuke.png') {
+		$icon_path = '/usr/share/icons/hicolor/16x16/apps/microjuke.png';
+	}
+
+	$self->{w}->{main}->set_default_icon_from_file($icon_path) if $icon_path;
 
 
 	$self->{w}->{mv} = Gtk2::VBox->new;
@@ -913,8 +917,7 @@ sub add_menu_item {
 	# create a new one. Subsequent calls referencing the same menu item
 	# will be processed by above.
 	unless ($added) {
-		push @{$self->{w}->{menu_tree}}, $menu_name;	
-		push @{$self->{w}->{menu_tree}}, {
+		push @{$self->{w}->{menu_tree}}, $menu_name , {
 			item_type => '<Branch>',
 			'children' => [
 				$item->{title},

@@ -76,6 +76,9 @@ sub onSongStart {
 # Called statically
 sub genLocalPath {
 	my ($artist, $album) = @_;
+
+	return '' unless defined $artist && defined $album;
+
 	$artist =~ s/\s+/-/g;
 	$artist =~ s/\.+/_/g;
 	$artist =~ s/\/+/_/g;
@@ -145,8 +148,8 @@ sub saveArtForAlbum {
 }
 
 sub checkArt {
-	my ($self, $artist, $album) = @_;
-	-e genLocalPath $artist, $album;
+	my ($artist, $album) = @_;
+	return -e genLocalPath($artist, $album);
 }
 
 

@@ -55,15 +55,35 @@ sub onSongStart {
 	my $self = shift;
 	return unless $have_notify;
 
+	my $icon = '';
+
+	# Attempt using our album art library. Using eval
+	# because it might not be loaded. 
+	eval {
+		if (
+			MicroJuke::Plugin::AlbumArt::checkArt($self->{play}->{gstate}->{artist},
+				$self->{play}->{gstate}->{album})
+			) {
+			$icon = MicroJuke::Plugin::AlbumArt::genLocalPath(
+				$self->{play}->{gstate}->{artist},
+				$self->{play}->{gstate}->{album}
+			);
+		}
+	};
+
+	warn "Couldn't put album art in notif; album art module might be disabled.\n" if $@;
+
 	eval {
 		my $notif = Gtk2::Notify->new(
 			"Now playing",
-			$self->{play}->{gstate}->{title}." by ".$self->{play}->{gstate}->{artist}
+			$self->{play}->{gstate}->{title}." by ".$self->{play}->{gstate}->{artist},
+			$icon
 		);
 		$notif->show;
+
 	};
 
-	warn "Couldn't prop notif: $!\n" if $@;
+	warn "Couldn't prop notif: $! $@\n" if $@;
 }
 
 1;

@@ -43,7 +43,7 @@ vorbis-tools and flac, for potentially slightly slower performance when parsing
 ----- How to install dependencies -----
 
 Ubuntu/Debian:
-# apt-get install libgstreamer-perl libgstreamer-interfaces-perl  libgtk2-perl libmp3-info-perl libogg-vorbis-header-perl libaudio-flac-header-perl gstreamer0.10-plugins-bad gstreamer0.10-plugins-base gstreamer0.10-plugins-good gstreamer0.10-plugins-ugly libgtk2-notify-perl xdg-utils libxml-simple-perl
+# apt-get install libgstreamer-perl libgstreamer-interfaces-perl  libgtk2-perl libmp3-info-perl libogg-vorbis-header-perl libaudio-flac-header-perl gstreamer0.10-plugins-bad gstreamer0.10-plugins-base gstreamer0.10-plugins-good gstreamer0.10-plugins-ugly libgtk2-notify-perl xdg-utils libxml-simple-perl libmp4-info-perl
 
 Fedora (you may need to enable RPMForge):
 # yum install perl-Gtk2 perl-MP3-Info perl-GStreamer perl-libwww-perl.noarch vorbis-tools flac perl-Gtk2-Notify xdg-utils perl-XML-Simple

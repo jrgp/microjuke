@@ -21,6 +21,7 @@ package MicroJuke::misc;
 use warnings;
 use strict;
 
+# A la php.net/file_get_contents
 sub file_contents {
 	my ($file, $default) = @_;
 	$default = $default || '';
@@ -45,6 +46,8 @@ use strict;
 use File::Basename;
 use Cwd;
 
+# Our package creation scripts replaces (SVN) with the version
+# passed to the package creation script
 use constant VERSION => '(SVN)';
 
 my $home = Glib::get_home_dir() || $ENV{HOME};
@@ -60,7 +63,8 @@ my %settings = (
 		$home.'/.microjuke/icons/',
 		getcwd().'/icons/'
 	],
-	dir => $dir
+	dir => $dir,
+	musicPath => $home.'/Music'
 );
 
 sub init {
@@ -86,6 +90,340 @@ sub findInPaths {
 		}
 	}
 	$path;
+}
+
+1;
+
+## Song importing. The most complex cuntshit here.
+package MicroJuke::importing;
+
+use strict;
+use warnings;
+use MP3::Info;
+use Data::Dumper;
+use File::Find;
+use Storable qw(store_fd fd_retrieve);
+use POSIX qw(floor);
+use IPC::Open2;
+use threads;
+use threads::shared;
+use Thread::Queue; 
+
+# Store methods to file parsing
+my ($ogg_method, $flac_method, $mp4_method);
+
+# These don't always exist
+BEGIN {
+
+	# See how we can support OGG and flac
+	eval {
+		require Ogg::Vorbis::Header;
+		require Audio::FLAC::Header;
+		Ogg::Vorbis::Header->import();
+		Audio::FLAC::Header->import();
+	};
+	if ($@) {
+		$ogg_method = -x '/usr/bin/vorbiscomment' ? 'vorbiscomment' : '';
+		$flac_method = -x '/usr/bin/metaflac' ? 'metaflac' : '';
+	}
+	else {
+		$ogg_method = 'module';
+		$flac_method = 'module';
+	}
+
+	# and how we can support mp4
+	eval {
+		require MP4::Info;
+		MP4::Info->import();
+	};
+
+	if ($@) {
+		$mp4_method = -x '/usr/bin/mediainfo' ? 'mediainfo' : '';
+	}
+	else {
+		$mp4_method = 'module';
+	}
+
+	# I'm not going to check for MP3 because the Mp3::Info package is on
+	# every OS and we can just install that 
+}
+
+# Hopefully allagedly make utf8 characters better. I have my doubts though
+use utf8;
+
+# How we talk to the threads
+my %progress :shared;
+
+$progress{progress} = ();
+$progress{finished} = -1;
+$progress{num_parsed} = 0;
+
+# Queue for parsing songs
+my $parseQueue = Thread::Queue->new;
+
+# Multithreaded, so we don't fucking freeze the interface while parsing
+threads->create(sub {
+	while (my $job = $parseQueue->dequeue()) {
+		if ($job eq 'parse') {
+			_parseLibrary();
+
+			# Done at this point
+			$progress{finished} = 1;
+		}
+	}
+})->detach;
+
+my @songs;
+
+# Go through the shit
+sub _parseLibrary {
+
+	$progress{finished} = 0;
+
+	find({
+		wanted => \&parse,
+		follow => 1 # Traverse symlinks. Let's hope this never fucks us in the ass
+		},
+		MicroJuke::Conf::getVal('musicPath')
+	);
+
+	sub parse {
+		my ($artist, $album, $title, $time, $tracknum);
+		return if (! -f $File::Find::name);
+		if ($_ =~ m/\.mp3$/) {
+			my $mp3 = new MP3::Info $File::Find::name;
+			unless ($mp3) {
+				print "Fucked up: ".$File::Find::name."\n";
+				return;
+			}
+			return unless defined $mp3->artist && defined $mp3->album && defined $mp3->title;
+			return unless $mp3->artist ne '' && $mp3->album ne '' && $mp3->title ne '';
+			($artist, $album, $title, $time, $tracknum) = (
+				$mp3->artist, $mp3->album, $mp3->title, $mp3->time,
+				defined $mp3->tracknum && $mp3->tracknum =~ /^(\d+)$/ ? $1 : 0
+			);
+		}
+		elsif ($_ =~ m/\.ogg$/) {
+			my $oggi = ();
+			if ($ogg_method eq 'vorbiscomment') {
+				my $pid = open2(my $std, undef,  '/usr/bin/vorbiscomment', $File::Find::name);
+				my $parsed = '';
+				while (<$std>) {
+					$parsed .= $_;
+				}
+				waitpid $pid, 0;
+				my %fields = (
+					TITLE => 'title',
+					ARTIST => 'artist',
+					TRACKNUMBER => 'tracknum',
+					ALBUM => 'album',
+				);
+				for (split /\n/, $parsed) {
+					chomp;
+					if (m/^([A-Z]+)=([^\$]+)$/i && defined $fields{uc($1)}) {
+						$oggi->{$fields{uc($1)}} = $2;
+					}
+				}
+			}
+			elsif ($ogg_method eq 'module') {
+				my $ogg = Ogg::Vorbis::Header->new($File::Find::name);
+				unless ($ogg) {
+					print "Fucked up: ".$File::Find::name."\n";
+					return;
+				}
+				$oggi->{time} = MicroJuke::GUI::seconds2minutes(floor($ogg->info->{length}));
+				my %fields = (
+					TITLE => 'title',
+					ARTIST => 'artist',
+					TRACKNUMBER => 'tracknum',
+					ALBUM => 'album',
+				);
+				for my $key ($ogg->comment_tags) {
+					my $keyu = uc $key;
+					if (defined $fields{$keyu}) {
+						($oggi->{$fields{$keyu}}) = ($ogg->comment($key));
+					}
+				}
+				for (keys %{$oggi}) {
+					$oggi->{$_} =~ s/^\s+|\s+$//g ;
+				}
+			}
+			return unless defined $oggi->{artist} && defined $oggi->{album} && defined $oggi->{title};
+			return unless $oggi->{artist} ne '' && $oggi->{album} ne '' && $oggi->{title} ne '';
+			($artist, $album, $title, $time, $tracknum) = (
+				$oggi->{artist}, $oggi->{album}, $oggi->{title}, $oggi->{time},
+				defined $oggi->{tracknum} && $oggi->{tracknum} =~ /^(\d+)$/ ? $1 : 0
+			);
+		}
+		elsif ($_ =~ m/\.flac$/) {
+			my $flaci = ();
+			if ($flac_method eq 'metaflac') {
+				my $pid = open2(my $std, undef,  '/usr/bin/metaflac', '--list', '--block-type', 'VORBIS_COMMENT', $File::Find::name);
+				my $parsed = '';
+				while (<$std>) {
+					$parsed .= $_;
+				}
+				waitpid $pid, 0;
+				my %fields = (
+					TITLE => 'title',
+					ARTIST => 'artist',
+					TRACKNUMBER => 'tracknum',
+					ALBUM => 'album',
+				);
+				for (split /\n/, $parsed) {
+					chomp;
+					if (m/^\s*comment\[\d+\]:\s*([^=]+)=([^\$]+)$/) {
+						my $keyu = uc $1;
+						if (defined $fields{$keyu}) {
+		#					print "MF $1 - $2\n";
+							$flaci->{$fields{$keyu}} = $2;
+						}
+					}
+				}
+
+			}
+			elsif ($flac_method eq 'module') {
+				my $flac = Audio::FLAC::Header->new($File::Find::name);
+				unless ($flac) {
+					print "Fucked up: ".$File::Find::name."\n";
+					return;
+				}
+				my $info = $flac->tags();
+				$flaci->{time} = MicroJuke::GUI::seconds2minutes(($flac->{trackLengthMinutes}*60) + $flac->{trackLengthSeconds});
+				for my $key (qw(ARTIST ALBUM TITLE TRACKNUMBER)) {
+					next unless defined $info->{$key};
+					if ($key eq 'ARTIST') {
+						$flaci->{artist} = $info->{$key};
+					}
+					elsif ($key eq 'ALBUM') {
+						$flaci->{album} = $info->{$key};
+					}
+					elsif ($key eq 'TITLE') {
+						$flaci->{title} = $info->{$key};
+					}
+					elsif ($key eq 'TRACKNUMBER') {
+						$flaci->{tracknum} = $info->{$key};
+					}
+				}
+			}
+			return unless defined $flaci->{artist} && defined $flaci->{album} && defined $flaci->{title};
+			return unless $flaci->{artist} ne '' && $flaci->{album} ne '' && $flaci->{title} ne '';
+			($artist, $album, $title, $time, $tracknum) = (
+				$flaci->{artist}, $flaci->{album}, $flaci->{title}, $flaci->{time},
+				defined $flaci->{tracknum} && $flaci->{tracknum} =~ /^(\d+)$/ ? $1 : 0
+			);
+		}
+		elsif ($_ =~ m/\.m4a$/) {
+			if ($mp4_method eq 'module')  {
+				my $mp4 = MP4::Info->new($File::Find::name);
+				unless ($mp4) {
+					print "Fucked up: ".$File::Find::name."\n";
+					return;
+				}
+				return unless defined $mp4->artist && defined $mp4->album && defined $mp4->title;
+				return unless $mp4->artist ne '' && $mp4->album ne '' && $mp4->title ne '';
+				($artist, $album, $title, $time, $tracknum) = (
+					$mp4->artist, $mp4->album, $mp4->title, $mp4->time,
+					defined $mp4->tracknum && $mp4->tracknum =~ /^(\d+)$/ ? $1 : 0
+				);
+			}
+			elsif ($mp4_method eq 'mediainfo') {
+				return; # For now
+			}
+			else {
+				return;
+			}
+		}
+		else {
+			return;
+		}
+
+	#	print "Inserting $artist - $album - $title\n";
+
+		# Attempt getting tracknumber from file prefix
+		if (!$tracknum && m/^(\d+)[\.\-]? /) {
+			$tracknum = $1;
+		}
+
+		push @songs, [$artist, $album, $tracknum, $title, $File::Find::name, $time];
+		$progress{num_parsed}++;
+	}
+
+	open(H, '>'.MicroJuke::Conf::getVal('dir').'songs.dat');
+	store_fd \@songs, \*H;
+	close H;
+	#print "Parsed ".$progress{num_parsed}." Files\n";
+	$progress{finished} = 1;
+	$progress{num_parsed} = 0;
+}
+
+# Watch and let us know when the fucker's done parsing
+sub watch {
+	my ($gui) = @_;
+
+	# We haven't started it yet
+	if ($progress{finished} == -1) {
+		print "Not started\n";
+		return 0;	
+	}
+
+	# It's mid progress
+	elsif ($progress{finished} == 0) {
+	#	print "Mid progress (".$progress{num_parsed}." songs so far)\n";
+		$gui->changeStatusBar("Parsing library... (".$progress{num_parsed}." songs so far)");
+		return 1;
+	}
+
+	# It's done
+	elsif ($progress{finished} == 1) {
+	#	print "Parse done?\n";
+
+		$gui->{play}->reloadSongList();
+
+		# Set it to not running so we can go again 
+		$progress{finished} = -1;
+
+		# Kill this here
+		return 0;
+	}
+
+	# Shouldn't happen
+	else {
+		print "Wtf???? ".$progress{finished}."\n";
+		return 1;
+	}
+}
+
+# Do parse
+sub doParse {
+	my ($gui) = @_;
+
+	# We haven't started it yet
+	if ($progress{finished} == -1) {
+
+		# Start it off as started
+		$progress{finished} = 0;
+
+		# Start the process in our thread
+		$parseQueue->enqueue('parse');
+	
+		# Check its progress every second
+		Glib::Timeout->add (1000, sub{
+			MicroJuke::importing::watch(shift);
+		}, $gui);
+	}
+
+	# It's mid progress
+	elsif ($progress{finished} == 0) {
+		print "Mid progress; fuck off\n";
+		return;
+	}
+
+	# It's done
+	elsif ($progress{finished} == 1) {
+		print "Done?\n";
+		return;
+	}
 }
 
 1;
@@ -270,7 +608,6 @@ sub reloadSongList {
 	close H;
 	$self->{all_songs} = $songs;
 	$self->{gui}->filterSongs('');
-
 	$self->{gui}->{w}->{sb}->pop($self->{gui}->{w}->{sbID});
 	$self->{gui}->{w}->{sb}->push($self->{gui}->{w}->{sbID}, scalar(@{$self->{all_songs}}).' songs');
 }
@@ -448,7 +785,8 @@ sub new {
 						} 
 						Glib::Idle->add(sub {
 								my $self = shift;
-								$self->{play}->reloadSongList();
+							#	$self->{play}->reloadSongList();
+								MicroJuke::importing::doParse($self);
 								0;
 							}, $self
 						);
@@ -905,6 +1243,8 @@ sub kill_plugin_window {
 sub add_menu_item {
 	my ($self, $menu_name, $item) = @_;
 	my $added = 0;
+
+	# Try to find menu item we're looking for
 	for (keys @{$self->{w}->{menu_tree}}) {
 		if ($self->{w}->{menu_tree}->[$_] eq $menu_name && ref($self->{w}->{menu_tree}->[$_ + 1]) eq 'HASH') {
 			push @{$self->{w}->{menu_tree}->[$_ + 1]->{children}}, $item->{title};
@@ -925,6 +1265,13 @@ sub add_menu_item {
 			]
 		};	
 	}
+}
+
+# Change status bar text
+sub changeStatusBar {
+	my ($self, $msg) = @_;
+	$self->{w}->{sb}->pop($self->{w}->{sbID});
+	$self->{w}->{sb}->push($self->{w}->{sbID}, $msg);
 }
 
 1;

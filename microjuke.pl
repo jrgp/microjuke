@@ -110,7 +110,7 @@ use threads::shared;
 use Thread::Queue; 
 
 # Store methods to file parsing
-my ($ogg_method, $flac_method, $mp4_method);
+my ($ogg_method, $flac_method, $mp4_method, $wma_method);
 
 # These don't always exist
 BEGIN {
@@ -142,6 +142,19 @@ BEGIN {
 	}
 	else {
 		$mp4_method = 'module';
+	}
+
+	# wma?
+	eval {
+		require Audio::WMA;
+		Audio::WMA->import();
+	};
+
+	if ($@) {
+		$wma_method = '';
+	}
+	else {
+		$wma_method = 'module';
 	}
 
 	# I'm not going to check for MP3 because the Mp3::Info package is on
@@ -190,6 +203,9 @@ sub _parseLibrary {
 	sub parse {
 		my ($artist, $album, $title, $time, $tracknum);
 		return if (! -f $File::Find::name);
+
+
+		# Parse MP3's 
 		if ($_ =~ m/\.mp3$/) {
 			my $mp3 = new MP3::Info $File::Find::name;
 			unless ($mp3) {
@@ -203,6 +219,8 @@ sub _parseLibrary {
 				defined $mp3->tracknum && $mp3->tracknum =~ /^(\d+)$/ ? $1 : 0
 			);
 		}
+
+		# OGG
 		elsif ($_ =~ m/\.ogg$/) {
 			my $oggi = ();
 			if ($ogg_method eq 'vorbiscomment') {
@@ -255,6 +273,8 @@ sub _parseLibrary {
 				defined $oggi->{tracknum} && $oggi->{tracknum} =~ /^(\d+)$/ ? $1 : 0
 			);
 		}
+
+		## FLAC
 		elsif ($_ =~ m/\.flac$/) {
 			my $flaci = ();
 			if ($flac_method eq 'metaflac') {
@@ -313,6 +333,8 @@ sub _parseLibrary {
 				defined $flaci->{tracknum} && $flaci->{tracknum} =~ /^(\d+)$/ ? $1 : 0
 			);
 		}
+
+		## AAC (m4a)
 		elsif ($_ =~ m/\.m4a$/) {
 			if ($mp4_method eq 'module')  {
 				my $mp4 = MP4::Info->new($File::Find::name);
@@ -334,6 +356,32 @@ sub _parseLibrary {
 				return;
 			}
 		}
+
+		## WMA
+		elsif ($_ =~ m/\.wma$/) {
+			if ($wma_method eq 'module')  {
+				my $wma = Audio::WMA->new($File::Find::name);
+				unless ($wma) {
+					print "Fucked up: ".$File::Find::name."\n";
+					return;
+				}
+				my ($tags, $winfo) = ($wma->tags(), $wma->info());
+				eval {
+					($artist, $album, $title, $time, $tracknum) = (
+						$tags->{ALBUMARTIST} || $tags->{AUTHOR}, $tags->{ALBUMTITLE}, $tags->{TITLE},
+						$winfo->{playtime_seconds},
+						defined $tags->{TRACKNUMBER} && $tags->{TRACKNUMBER} =~ /^(\d+)$/ ? $1 : 0
+					);
+				};
+				if ($@) {
+					return;
+				}
+			}
+			else {
+				return;
+			}
+		}
+
 		else {
 			return;
 		}

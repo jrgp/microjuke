@@ -663,16 +663,14 @@ sub reloadSongList {
 sub getProgress {
 	my $self = shift;
 	my $gst = GStreamer::Query::Position->new ('time');
-	my ($progress, $duration, $pfield, $dfield);
+	my ($progress, $duration);
 	if ($self->{play}->query($gst)) {
-		($pfield, $progress) = $gst->position('time');
-		$progress = floor($progress / 1000000000);
+		$progress = floor(($gst->position('time'))[1] / 1000000000);
 	}
 
 	my $dst = GStreamer::Query::Duration->new ('time');
 	if ($self->{play}->query($dst)) {
-		($dfield, $duration) = $dst->duration('time');
-		$duration = floor($duration / 1000000000);
+		$duration = floor(($dst->duration('time'))[1] / 1000000000);
 	}
 
 	return 0 if !defined $progress || !defined $duration;
@@ -684,6 +682,18 @@ sub getProgress {
 	$self->{gui}->{w}->{np_timer}->set_text(MicroJuke::GUI::seconds2minutes($progress).' of '.MicroJuke::GUI::seconds2minutes($duration));
 
 	return 1;
+}
+
+sub seek {
+	my ($self, $val) = @_;
+
+	# If we're not playing don't bother to seek
+	if (($self->{play}->get_state(4))[1] ne 'playing') {
+		return;
+	} 
+
+	# I wish this worked but it doesn't, although it probably should
+	$self->{play}->seek(1.0, 'percent', 'flush', 'set', $val, 'none', 0);
 }
 
 sub busCallBack {
@@ -736,6 +746,7 @@ sub playSong {
 
 	my $file = $self->{files}->{$index};
 
+	return unless $file;
 
 	$self->{gstate}->{playing_what} = $index;
 	$self->{gstate}->{file} = $file;
@@ -778,7 +789,6 @@ sub playSong {
 	}, $self);
 
 	$self->{gui}->{w}->{main}->set_title("MicroJuke ".MicroJuke::Conf::VERSION." - [$artist] $title");
-
 
 	# Go through plugins supporting some action or whatever here
 	for my $plugin (keys %{$self->{plugins}->{hooks}}) {
@@ -924,9 +934,7 @@ sub toolong {
 
 sub plActCallBack {
 	my ($self, $widget, $event) = @_;
-	my $p = $event;
-	my ($index) = $p->get_indices;
-	$self->{play}->playSong($index);
+	$self->{play}->playSong($event->get_indices);
 }
 
 sub filterSongs {
@@ -1067,9 +1075,10 @@ sub init_gui {
 	$self->{w}->{slider}->set_size_request(200, -1);
 	$self->{w}->{slider}->set_draw_value(0);
 	$self->{w}->{mv}->pack_start($self->{w}->{playback}, 0, 0, 0);
-	$self->{w}->{slider_a}->signal_connect('value-changed', sub {
-		my ($widget, $self) = @_;
-	#	print Dumper($widget->get_value);
+	#$self->{w}->{slider_a}->signal_connect('value-changed', sub {
+	$self->{w}->{slider}->signal_connect('button-release-event', sub {
+		my ($widget, $btn, $self) = @_;
+		$self->{play}->seek($widget->get_value);
 		return 0;
 	}, $self);
 

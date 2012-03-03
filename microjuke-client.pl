@@ -23,7 +23,8 @@ use IO::Socket::UNIX qw(SOCK_STREAM SOMAXCONN);
 my %acts = (
 	'--play-pause' => 'playpause',
 	'--next' => 'next',
-	'--previous' => 'prev'
+	'--previous' => 'prev',
+	'--prev' => 'prev',
 );
 
 # Get whatever was passed

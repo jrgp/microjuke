@@ -1,5 +1,9 @@
 #!/usr/bin/perl
 
+#
+# Abandon all hope, ye who enter here
+#
+
 # This file is part of MicroJuke (c) 2012 Joe Gillotti.
 # 
 # MicroJuke is free software: you can redistribute it and/or modify
@@ -391,6 +395,12 @@ sub _parseLibrary {
 		# Attempt getting tracknumber from file prefix
 		if (!$tracknum && m/^(\d+)[\.\-]? /) {
 			$tracknum = $1;
+		}
+
+		for (($artist, $album, $tracknum, $title, $File::Find::name, $time)) {
+			unless (defined $_) {
+				return;
+			}
 		}
 
 		push @songs, [$artist, $album, $tracknum, $title, $File::Find::name, $time];
@@ -1094,33 +1104,12 @@ sub init_gui {
 	}
 	$self->{w}->{playback}->pack_start($self->{w}->{playback_btns}, 0, 0, 0);
 
-	sub playPause {
-		my $self = shift;
-		return unless defined $self->{play}->{play};
-		my ($sc, $state) = $self->{play}->{play}->get_state(4);
-		if ($state eq 'paused') {
-			$self->{play}->{play}->set_state('playing');
-			$self->{w}->{plb_pause}->show;
-			$self->{w}->{plb_play}->hide;
-		} 
-		elsif ($state eq 'playing') {
-			$self->{play}->{play}->set_state('paused');
-			$self->{w}->{plb_pause}->hide;
-			$self->{w}->{plb_play}->show;
-		}
-		elsif ($state eq 'null' && $self->{play}->{gstate}->{playing_what} == -1) {
-			$self->{play}->playSong(0);
-			$self->{w}->{plb_pause}->show;
-			$self->{w}->{plb_play}->hide;
-		}
-	}
-
 	$self->{w}->{plb_play}->signal_connect('clicked', sub {
-		playPause($self);
+		$self->playPause();
 	});
 
 	$self->{w}->{plb_pause}->signal_connect('clicked', sub {
-		playPause($self);
+		$self->playPause();
 	});
 
 	$self->{w}->{plb_next}->signal_connect('clicked', sub {
@@ -1188,6 +1177,28 @@ sub init_gui {
 	# Start up
 	Gtk2->main;
 }
+
+sub playPause {
+	my $self = shift;
+	return unless defined $self->{play}->{play};
+	my ($sc, $state) = $self->{play}->{play}->get_state(4);
+	if ($state eq 'paused') {
+		$self->{play}->{play}->set_state('playing');
+		$self->{w}->{plb_pause}->show;
+		$self->{w}->{plb_play}->hide;
+	} 
+	elsif ($state eq 'playing') {
+		$self->{play}->{play}->set_state('paused');
+		$self->{w}->{plb_pause}->hide;
+		$self->{w}->{plb_play}->show;
+	}
+	elsif ($state eq 'null' && $self->{play}->{gstate}->{playing_what} == -1) {
+		$self->{play}->playSong(0);
+		$self->{w}->{plb_pause}->show;
+		$self->{w}->{plb_play}->hide;
+	}
+}
+
 
 sub show_about {
 	my $self = shift;

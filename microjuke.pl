@@ -1218,7 +1218,8 @@ sub show_about {
 }
 
 sub openWebBrowser {
-	open my $pipe, '-|', '/usr/bin/xdg-open', shift;
+	my $exec = MicroJuke::Conf::findInPaths(['/usr/bin', '/usr/local/bin'], 'xdg-open');
+	open my $pipe, '-|', $exec, shift;
 	close $pipe;
 }
 

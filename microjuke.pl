@@ -98,7 +98,7 @@ sub findInPaths {
 
 1;
 
-## Song importing. The most complex cuntshit here.
+## Song importing. The most complex shit here.
 package MicroJuke::importing;
 
 use strict;

@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with MicroJuke.  If not, see <http://www.gnu.org/licenses/>.
 
-## Misc convenient bullshit
+## Misc convenient functions
 package MicroJuke::misc;
 
 use warnings;
@@ -98,7 +98,7 @@ sub findInPaths {
 
 1;
 
-## Song importing. The most complex shit here.
+## Song importing. The most complex .stuff here.
 package MicroJuke::importing;
 
 use strict;
@@ -178,7 +178,7 @@ $progress{num_parsed} = 0;
 # Queue for parsing songs
 my $parseQueue = Thread::Queue->new;
 
-# Multithreaded, so we don't fucking freeze the interface while parsing
+# Multithreaded, so we don't freeze the interface while parsing
 threads->create(sub {
 	while (my $job = $parseQueue->dequeue()) {
 		if ($job eq 'parse') {
@@ -192,14 +192,14 @@ threads->create(sub {
 
 my @songs;
 
-# Go through the shit
+# Go through the song libary
 sub _parseLibrary {
 
 	$progress{finished} = 0;
 
 	find({
 		wanted => \&parse,
-		follow => 1 # Traverse symlinks. Let's hope this never fucks us in the ass
+		follow => 1 # Traverse symlinks. Let's hope this never screws us
 		},
 		MicroJuke::Conf::getVal('musicPath')
 	);
@@ -415,7 +415,7 @@ sub _parseLibrary {
 	$progress{num_parsed} = 0;
 }
 
-# Watch and let us know when the fucker's done parsing
+# Watch and let us know when its done parsing
 sub watch {
 	my ($gui) = @_;
 
@@ -1070,7 +1070,7 @@ sub init_gui {
 
 	$self->{w}->{mv}->pack_start($self->{w}->{menu}->{widget}, 0, 0, 0);
 
-	# Currently playing shit
+	# Currently playing 
 	$self->{w}->{np} = Gtk2::HBox->new;
 	$self->{w}->{mv}->pack_start($self->{w}->{np}, 0, 0, 0);
 	$self->{w}->{npl} = Gtk2::Label->new('Nothing playing');
@@ -1257,13 +1257,13 @@ sub init_plugin_window {
 	map {$_->set_resizable (TRUE)} $self->{pl_window}->{plist}->get_columns;
 	map {$_->set_expand (FALSE)} $self->{pl_window}->{plist}->get_columns;
 
-	# Scrolly fucker that holds plugin list
+	# Scrolly widget that holds plugin list
 	$self->{pl_window}->{plist_c} = Gtk2::ScrolledWindow->new (undef, undef);
 	$self->{pl_window}->{plist_c}->set_policy ('automatic', 'always');
 	$self->{pl_window}->{plist_c}->set_size_request (200,100);
 	$self->{pl_window}->{plist_c}->add($self->{pl_window}->{plist});
 
-	# Populate it, like a fucking boss 
+	# Populate it, like a boss 
 	my %available = %{$self->{plugins}->listAvailable};
 	for (keys %available) {
 		push @{$self->{pl_window}->{plist}->{data}}, [

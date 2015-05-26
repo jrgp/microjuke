@@ -50,9 +50,7 @@ use strict;
 use File::Basename;
 use Cwd;
 
-# Our package creation scripts replaces (SVN) with the version
-# passed to the package creation script
-use constant VERSION => '(SVN)';
+use constant VERSION => '(git)';
 
 my $home = Glib::get_home_dir() || $ENV{HOME};
 my $dir = $home.'/.microjuke/';

@@ -3,6 +3,8 @@ MicroJuke
 
 **A Perl/GTK desktop music player.**
 
+![MicroJuke Screenshot](http://jrgp.us/screenshots/perl_music/13.png)
+
 By Joe Gillotti <joe@u13.net>, released under the GPL
 
 NOTE: This is ***extremely*** beta. I've been listening to it a lot lately, but it 
@@ -51,7 +53,7 @@ vorbis-tools and flac, for potentially slightly slower performance when parsing
 
 ### How to install dependencies 
 
-Ubuntu/Debian:
+Ubuntu/Debian (Verified 5/25/15 on Debian 8):
 
 ```apt-get install libgstreamer-perl libgstreamer-interfaces-perl  libgtk2-perl libmp3-info-perl libogg-vorbis-decoder-perl libogg-vorbis-header-pureperl-perl  libaudio-flac-header-perl gstreamer0.10-plugins-bad gstreamer0.10-plugins-base gstreamer0.10-plugins-good gstreamer0.10-plugins-ugly libgtk2-notify-perl xdg-utils libxml-simple-perl libmp4-info-perl libaudio-wma-perl```
 

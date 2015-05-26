@@ -796,7 +796,7 @@ sub playSong {
 		$self->getProgress();
 	}, $self);
 
-	$self->{gui}->{w}->{main}->set_title("MicroJuke ".MicroJuke::Conf::VERSION." - [$artist] $title");
+	$self->{gui}->{w}->{main}->set_title("[$artist] $title - MicroJuke ".MicroJuke::Conf::VERSION);
 
 	# Go through plugins supporting some action or whatever here
 	for my $plugin (keys %{$self->{plugins}->{hooks}}) {

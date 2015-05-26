@@ -206,6 +206,7 @@ sub _parseLibrary {
 		my ($artist, $album, $title, $time, $tracknum);
 		return if (! -f $File::Find::name);
 
+    eval {
 
 		# Parse MP3's 
 		if ($_ =~ m/\.mp3$/) {
@@ -403,7 +404,10 @@ sub _parseLibrary {
 
 		push @songs, [$artist, $album, $tracknum, $title, $File::Find::name, $time];
 		$progress{num_parsed}++;
-	}
+
+    return 1;
+	} or warn "failed parsing $File::Find::name: $!\n";
+  };
 
 	open(H, '>'.MicroJuke::Conf::getVal('dir').'songs.dat');
 	store_fd \@songs, \*H;

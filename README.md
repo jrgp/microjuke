@@ -18,7 +18,8 @@ really lacks polish in its current state. (1/1/2012)
 
 ## Start Here 
 1. Install dependencies (as below).
-2. Run `perl microjuke.pl` or make a shortcut to it 
+2. Symlink your music library to $HOME/Music or store your music there. This is hardcoded unfortunately
+3. Run `perl microjuke.pl` or make a shortcut to it
 
 ####For last.fm:
 

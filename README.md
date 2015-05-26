@@ -52,7 +52,7 @@ vorbis-tools and flac, for potentially slightly slower performance when parsing
 
 Ubuntu/Debian:
 
-```apt-get install libgstreamer-perl libgstreamer-interfaces-perl  libgtk2-perl libmp3-info-perl libogg-vorbis-header-perl libaudio-flac-header-perl gstreamer0.10-plugins-bad gstreamer0.10-plugins-base gstreamer0.10-plugins-good gstreamer0.10-plugins-ugly libgtk2-notify-perl xdg-utils libxml-simple-perl libmp4-info-perl libaudio-wma-perl```
+```apt-get install libgstreamer-perl libgstreamer-interfaces-perl  libgtk2-perl libmp3-info-perl libogg-vorbis-decoder-perl libogg-vorbis-header-pureperl-perl  libaudio-flac-header-perl gstreamer0.10-plugins-bad gstreamer0.10-plugins-base gstreamer0.10-plugins-good gstreamer0.10-plugins-ugly libgtk2-notify-perl xdg-utils libxml-simple-perl libmp4-info-perl libaudio-wma-perl```
 
 Fedora (you may need to enable RPMForge):
 

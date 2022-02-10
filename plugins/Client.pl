@@ -34,7 +34,7 @@ sub new {
 
 	# Communicate with our remote controller via a UNIX domain socket.
 	# As we're going to be listneing for connections, do so via a thread so we
-	# don't block the interface and freeze the motherfucker.
+	# don't block the interface and freeze the UI.
 	#
 	# Unfortunately this means we'll need to constanty poll the $action variable
 	# to see if there's something new to be done to the player itself. This might be
@@ -48,7 +48,7 @@ sub new {
 		# listening for connections on it. 
 		unlink($socket_path);
 
-		# "Reckoner" is a fucking badass Radiohead song, btw.
+		# "Reckoner" is a badass Radiohead song, btw.
 		my $reckoner = IO::Socket::UNIX->new(
 			Type   => SOCK_STREAM,
 			Local  => $socket_path,
@@ -78,7 +78,7 @@ sub new {
 		
 	}, $self)->detach;
 	
-	# Let's race condition this bitch like a motherfucker. Check every 100 (dunno what time measurement that is)
+	# Let's enjoy lots of race conditions. Check every 100 (dunno what time measurement that is)
 	# to see if we have an action. If we do, do it, and reset it back to null
 	Glib::Timeout->add (100, sub {
 

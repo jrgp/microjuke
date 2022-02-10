@@ -212,7 +212,7 @@ sub _parseLibrary {
 		if ($_ =~ m/\.mp3$/) {
 			my $mp3 = new MP3::Info $File::Find::name;
 			unless ($mp3) {
-				print "Fucked up: ".$File::Find::name."\n";
+				print "Warning: ".$File::Find::name."\n";
 				return;
 			}
 			return unless defined $mp3->artist && defined $mp3->album && defined $mp3->title;
@@ -249,7 +249,7 @@ sub _parseLibrary {
 			elsif ($ogg_method eq 'module') {
 				my $ogg = Ogg::Vorbis::Header->new($File::Find::name);
 				unless ($ogg) {
-					print "Fucked up: ".$File::Find::name."\n";
+					print "Warning: ".$File::Find::name."\n";
 					return;
 				}
 				$oggi->{time} = MicroJuke::GUI::seconds2minutes(floor($ogg->info->{length}));
@@ -308,7 +308,7 @@ sub _parseLibrary {
 			elsif ($flac_method eq 'module') {
 				my $flac = Audio::FLAC::Header->new($File::Find::name);
 				unless ($flac) {
-					print "Fucked up: ".$File::Find::name."\n";
+					print "Warning: ".$File::Find::name."\n";
 					return;
 				}
 				my $info = $flac->tags();
@@ -342,7 +342,7 @@ sub _parseLibrary {
 			if ($mp4_method eq 'module')  {
 				my $mp4 = MP4::Info->new($File::Find::name);
 				unless ($mp4) {
-					print "Fucked up: ".$File::Find::name."\n";
+					print "Warning: ".$File::Find::name."\n";
 					return;
 				}
 				return unless defined $mp4->artist && defined $mp4->album && defined $mp4->title;
@@ -365,7 +365,7 @@ sub _parseLibrary {
 			if ($wma_method eq 'module')  {
 				my $wma = Audio::WMA->new($File::Find::name);
 				unless ($wma) {
-					print "Fucked up: ".$File::Find::name."\n";
+					print "Warning: ".$File::Find::name."\n";
 					return;
 				}
 				my ($tags, $winfo) = ($wma->tags(), $wma->info());
@@ -475,7 +475,7 @@ sub doParse {
 
 	# It's mid progress
 	elsif ($progress{finished} == 0) {
-		print "Mid progress; fuck off\n";
+		print "Mid progress; please wait\n";
 		return;
 	}
 
@@ -974,7 +974,7 @@ sub filterSongs {
 		return if $nf == 0;
 	}
 
-	# Sort dem bitches
+	# Sort the songs
 	@fsongs = sort {
 		$a->[0] cmp $b->[0] || # Artist
 		$a->[1] cmp $b->[1] || # Album
@@ -1306,7 +1306,7 @@ sub kill_plugin_window {
 
 	$self->{pl_window}->{window}->destroy;
 	
-	# Fuck memory leaks
+	# Try to avoid memory leaks
 	delete $self->{pl_window};
 }
 

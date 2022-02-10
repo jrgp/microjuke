@@ -36,8 +36,8 @@ use constant secretKey => 'c91395a441ec56416536ab1e83a3c82a';
 my $q = Thread::Queue->new;
 
 threads->create(sub {
-	while (my $shit = $q->dequeue()) {
-		my ($album, $artist) = @{$shit};
+	while (my $item = $q->dequeue()) {
+		my ($album, $artist) = @{$item};
 		saveArtForAlbum($artist, $album);
 	}
 })->detach;
@@ -70,7 +70,7 @@ sub onSongStart {
 }
 
 ########################
-## Stuff we use internally to get shit done
+## Stuff we use internally to get stuff done
 ########################
 
 # Called statically

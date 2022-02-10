@@ -249,7 +249,7 @@ sub getWebServiceSession {
 				$self->getWebServiceSession();
 			}
 
-			# User doesn't give a fuck about last.fm, apparently. Kill window and don't attempt to check
+			# User doesn't give a care about last.fm, apparently. Kill window and don't attempt to check
 			# if we authed again.
 			else {
 				$dialog->destroy;

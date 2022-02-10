@@ -30,10 +30,10 @@ my %acts = (
 # Get whatever was passed
 my $command = shift @ARGV;
 
-# Nothing passed? Motherfucker. Show usage.
+# No args passed?
 defined $command || usage();
 
-# Something incorrect passed? Even worse. Motherfucker...
+# Something incorrect passed?
 defined $acts{$command} || usage();
 
 # Connect to socket created by running MicroJuke
@@ -45,7 +45,7 @@ or die "Couldn't connect to socket: $!\nTry actually running microjuke?\n";
 # Send it our command
 print $client $acts{$command}."\n";
 
-# Flush that shit
+# Flush the output to the socket
 $client->flush;
 
 # Close connection
@@ -53,7 +53,7 @@ $client->close;
 
 exit 0;
 
-# When we get called retarded
+# When we get called incorrectly, show usage
 sub usage {
 	print STDERR "Usage: $0 [OPTION]\nOptions\n";
 	for(keys %acts) {
